@@ -31,6 +31,7 @@ async function loadDsm() {
   state.entries = parseDsm(await file.text(), { year: 2026, assignees: selected });
   if (!state.entries.length) showError('Tidak menemukan tiket DSM lengkap dengan tanggal, sesi, dan assignee.');
   else showInfo(`${state.entries.length} kemunculan tiket DSM ditemukan.`);
+  refreshExportState();
 }
 
 async function loadWorkbook() {
@@ -40,6 +41,7 @@ async function loadWorkbook() {
   state.workbook = XLSX.read(await file.arrayBuffer(), { type: 'array', cellStyles: true, cellDates: false });
   state.kpiFileName = file.name;
   showInfo(`Workbook ${file.name} siap.`);
+  refreshExportState();
 }
 
 async function startScan() {
@@ -78,7 +80,7 @@ function updateJob(job) {
     const review = decisions.filter(d => d.needsReview || !d.end).length;
     $('#summary').innerHTML = `✓ ${high} status pair<br>△ ${fallback} fallback DSM<br>⚠ ${review} perlu review<br>✕ ${job.errors?.length || 0} halaman gagal`;
     $('#summary').classList.remove('hidden');
-    exportButton.classList.toggle('hidden', !state.workbook);
+    refreshExportState();
   }
 }
 
@@ -180,6 +182,9 @@ function setBusy(busy) { scanButton.disabled = busy; scanButton.textContent = bu
 function showError(text) { message.style.color = '#cf222e'; message.textContent = text; }
 function showInfo(text) { message.style.color = '#1a7f37'; message.textContent = text; }
 function clearMessage() { message.textContent = ''; }
+function refreshExportState() {
+  exportButton.classList.toggle('hidden', !(state.workbook && state.entries.length && state.job?.status === 'completed'));
+}
 async function restoreJob() { const job = await chrome.runtime.sendMessage({ type: 'GET_JOB' }); if (job) updateJob(job); }
 async function resetJob() {
   await chrome.runtime.sendMessage({ type: 'CLEAR_JOB' });
