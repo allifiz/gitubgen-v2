@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>GitubGen V2</title>
+  <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body>
+  <header>
+    <div class="logo">G2</div>
+    <div><h1>GitubGen V2</h1><p>KPI Extractor · Chrome & Edge</p></div>
+  </header>
+
+  <main>
+    <section class="card">
+      <h2>1. Sumber data</h2>
+      <label class="file">DSM Markdown/Text<input id="dsmFile" type="file" accept=".md,.txt"></label>
+      <label class="file">KPI Excel<input id="kpiFile" type="file" accept=".xlsx,.xls"></label>
+    </section>
+
+    <section class="card">
+      <h2>2. Assignee</h2>
+      <div class="checks">
+        <label><input type="checkbox" name="assignee" value="hizkia" checked> Hizkia</label>
+        <label><input type="checkbox" name="assignee" value="maulana" checked> Maulana</label>
+        <label><input type="checkbox" name="assignee" value="dwiki" checked> Dwiki</label>
+        <label><input type="checkbox" name="assignee" value="allief"> Allief</label>
+      </div>
+      <label>Batas penelusuran
+        <select id="depth"><option value="0">Parent saja</option><option value="1" selected>Parent + link/sub-issue</option></select>
+      </label>
+    </section>
+
+    <section class="card">
+      <h2>3. Proses</h2>
+      <button id="scan" class="primary">Mulai scan GitHub</button>
+      <div id="progressWrap" class="progress-wrap hidden">
+        <div class="progress"><span id="progressBar"></span></div>
+        <p id="progressText">Menyiapkan...</p>
+      </div>
+      <div id="summary" class="summary hidden"></div>
+      <button id="export" class="success hidden">Download Excel</button>
+      <button id="reset" class="ghost">Reset checkpoint</button>
+    </section>
+
+    <section class="card note">
+      <h2>Aturan September</h2>
+      <p><b>Prioritas:</b> In Progress → Ready to Review pada tanggal DSM yang sama.</p>
+      <p>Jika tidak lengkap, baru periksa link/sub-issue. Start yang tidak terlacak memakai fallback DSM; End wajib aktivitas GitHub.</p>
+    </section>
+    <p id="message" class="message"></p>
+  </main>
+  <script src="sidepanel.js"></script>
+</body>
+</html>
