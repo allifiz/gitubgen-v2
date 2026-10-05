@@ -11,7 +11,7 @@ const ALIASES = {
   allief: ['allief', 'allif', 'allifgobimbel'],
   hizkia: ['hizkia', 'hizkiagobimbel'],
   maulana: ['maulana', 'maulanagobimbel'],
-  dwiki: ['dwiki', 'dwikigobimbel']
+  dwiki: ['dwiki', 'dwiky', 'dwikigobimbel', 'dwikygobimbel']
 };
 
 function pad(value) { return String(value).padStart(2, '0'); }
@@ -55,7 +55,8 @@ export function parseDsm(markdown, options = {}) {
     const lineAssignees = findAssignees(line);
     if (lineAssignees.length) currentAssignees = lineAssignees;
 
-    const urls = [...line.matchAll(/https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/(?:issues|pull)\/\d+/gi)]
+    const normalizedLine = line.replace(/https\\:\/\//gi, 'https://');
+    const urls = [...normalizedLine.matchAll(/https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/(?:issues|pull)\/\d+/gi)]
       .map(match => normalizeGitHubUrl(match[0]))
       .filter(Boolean);
 
