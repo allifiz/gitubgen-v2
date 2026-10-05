@@ -86,12 +86,18 @@ Contoh:
 
 | Urutan | Start | End | Confidence |
 |---|---|---|---|
-| 1 | Parent `In Progress` | Parent `Ready to Review` | High |
-| 2 | Parent `In Progress` | Activity akhir parent/link | Medium |
-| 3 | Fallback sesi DSM | Activity akhir parent/link | Low |
+| 1 | Parent `Todo`/`In Progress` | Status parent yang sama dengan status DSM | High |
+| 2 | Sub-issue `Todo`/`In Progress` | Status/PR/commit valid pada sub-issue | Medium |
+| 3 | Fallback sesi DSM | Activity GitHub valid pada tanggal DSM | Low |
 | 4 | Tidak ditemukan | Tidak ditemukan | Needs Review |
 
 Keputusan dan URL sumber ditulis pada sheet `Diagnostic`.
+
+- Event mention, assign, add-to-project, dan add-parent tidak dianggap sebagai bukti selesai.
+- Fallback hanya untuk Start Time: DSM 11:00 menjadi 09:00; DSM 15:00/16:00 menjadi 13:00.
+- End Time tidak pernah dibuat dari waktu DSM.
+- Durasi memakai jam kerja efektif 09:00–17:00 (Sabtu sampai 16:00), dipotong istirahat 12:00–13:00 atau Jumat 11:30–13:30.
+- Export baru berisi sheet `KPI`, `Diagnostic`, dan `Rekap Tiket Unik`. Pada rekap unik, `Date` adalah tanggal start pertama dan `End Date` adalah tanggal issue ditutup/deployed.
 
 ## Batasan versi awal
 
