@@ -2,10 +2,13 @@
 
 Extension Chromium (Chrome dan Microsoft Edge) untuk merekonsiliasi file DSM, activity GitHub, parent/sub-issue, dan KPI Excel.
 
-## Fokus versi 0.1
+## Fokus versi 0.2
 
 - Berjalan memakai sesi GitHub yang sudah login di browser; tidak memerlukan webhook atau GitHub App organisasi.
 - Membaca tiket berulang dari DSM per assignee, tanggal, dan sesi.
+- Bisa membuat workbook KPI dari nol hanya dengan upload DSM; file KPI lama bersifat opsional.
+- Dua sesi tiket yang sama pada tanggal yang sama digabung menjadi satu row KPI berdasarkan `Assignee + Ticket URL + Date`.
+- Status dan judul diambil dari kemunculan DSM terakhir pada hari tersebut.
 - Memindai timeline issue/PR melalui tab background.
 - Menyimpan checkpoint scan di `chrome.storage.local`.
 - Prioritas waktu: `In Progress` → `Ready to Review` pada parent dan tanggal DSM yang sama.
@@ -46,12 +49,20 @@ Hasil extension berada di folder `dist/`.
 ## Cara pakai
 
 1. Pilih file DSM `.md` atau `.txt`.
-2. Pilih file KPI `.xlsx`.
+2. File KPI `.xlsx` bersifat opsional. Kosongkan untuk membuat KPI baru dari DSM.
 3. Pilih assignee: Hizkia, Maulana, Dwiki, atau Allief.
 4. Pilih kedalaman scan.
 5. Klik **Mulai scan GitHub**.
 6. Jangan logout dari GitHub selama scan berlangsung.
 7. Setelah selesai, periksa ringkasan lalu klik **Download Excel**.
+
+Workbook baru menggunakan urutan kolom tetap:
+
+```text
+Assignee | Type | Ticket Title | Ticket URL | Type | Status | Priority | Date | Week | Start Time | End Time | Hour
+```
+
+Workbook berisi sheet `KPI` dengan header, border, zebra rows, filter, lebar kolom, dan format Hour; serta sheet `Diagnostic` untuk sumber keputusan waktu.
 
 Extension akan membuka issue di tab tidak aktif dan menutupnya setelah timeline selesai dibaca. Jika browser ditutup di tengah jalan, checkpoint tetap tersimpan dan dapat digunakan untuk melanjutkan scan.
 

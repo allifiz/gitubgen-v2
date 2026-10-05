@@ -1,8 +1,9 @@
-import * as XLSX from 'xlsx';
-import { parseDsm } from './lib/dsm-parser.js';
+import * as XLSX from 'xlsx-js-style';
+import { collapseDailyEntries, parseDsm } from './lib/dsm-parser.js';
 import { decideTimes } from './lib/activity-matcher.js';
 import { normalizeGitHubUrl } from './lib/github-url.js';
 import { normalizePerson } from './lib/person.js';
+import { systemType, ticketType, weekOfMonth } from './lib/kpi-fields.js';
 
 const state = { entries: [], workbook: null, kpiFileName: null, job: null };
 const $ = selector => document.querySelector(selector);
@@ -50,7 +51,7 @@ async function startScan() {
   await loadDsm();
   if (!state.entries.length) return;
   const grouped = new Map();
-  for (const entry of state.entries) {
+  for (const entry of collapseDailyEntries(state.entries)) {
     const dates = grouped.get(entry.ticketUrl) || new Set();
     dates.add(entry.date);
     grouped.set(entry.ticketUrl, dates);
@@ -74,7 +75,7 @@ function updateJob(job) {
   $('#progressText').textContent = `${job.processed || 0}/${job.total || 0} halaman · ${job.status}`;
   if (job.status === 'completed') {
     setBusy(false);
-    const decisions = state.entries.map(entry => decideTimes(entry, job.scans));
+    const decisions = collapseDailyEntries(state.entries).map(entry => decideTimes(entry, job.scans));
     const high = decisions.filter(d => d.confidence === 'HIGH').length;
     const fallback = decisions.filter(d => d.rule === 'DSM_FALLBACK_GITHUB_END').length;
     const review = decisions.filter(d => d.needsReview || !d.end).length;
@@ -85,18 +86,60 @@ function updateJob(job) {
 }
 
 async function exportWorkbook() {
-  if (!state.workbook || !state.job) return showError('Workbook atau hasil scan belum tersedia.');
-  const result = fillWorkbook(state.workbook, state.entries, state.job.scans);
+  if (!state.job) return showError('Hasil scan belum tersedia.');
+  const result = state.workbook
+    ? fillWorkbook(state.workbook, state.entries, state.job.scans)
+    : createWorkbookFromDsm(state.entries, state.job.scans);
   const bytes = XLSX.write(result.workbook, { bookType: 'xlsx', type: 'array', cellStyles: true });
   const blob = new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
   const url = URL.createObjectURL(blob);
-  const outputName = (state.kpiFileName || 'KPI-September-2026.xlsx').replace(/\.xlsx?$/i, '-GITUBGEN-V2.xlsx');
+  const outputName = state.kpiFileName
+    ? state.kpiFileName.replace(/\.xlsx?$/i, '-GITUBGEN-V2.xlsx')
+    : generatedFileName(state.entries);
   await chrome.downloads.download({ url, filename: outputName, saveAs: true });
   setTimeout(() => URL.revokeObjectURL(url), 30_000);
-  showInfo(`${result.updated} row kosong diisi; ${result.skipped} row dilewati; ${result.review} perlu review.`);
+  showInfo(`${result.updated} row KPI dibuat/diisi; ${result.skipped || 0} row dilewati; ${result.review} perlu review.`);
+}
+
+export function createWorkbookFromDsm(entries, scans) {
+  const dailyEntries = collapseDailyEntries(entries);
+  const headers = ['Assignee','Type','Ticket Title','Ticket URL','Type','Status','Priority','Date','Week','Start Time','End Time','Hour'];
+  const rows = [];
+  const diagnostic = [['KPI Row','Assignee','Date','DSM Sessions','Occurrences','Ticket URL','Start Time','End Time','Hour','Rule','Start Source','End Source','Confidence','Needs Review']];
+  let review = 0;
+
+  dailyEntries.forEach((entry, index) => {
+    const decision = decideTimes(entry, scans);
+    if (!decision.start || !decision.end || decision.needsReview) review += 1;
+    rows.push([
+      displayAssignee(entry.assignee), systemType(entry.ticketTitle), entry.ticketTitle,
+      entry.ticketUrl, ticketType(entry.ticketTitle), entry.status, '', displayDate(entry.date),
+      weekOfMonth(entry.date), decision.start ? formatDateTime(decision.start) : '',
+      decision.end ? formatDateTime(decision.end) : '',
+      decision.hours == null ? '' : Number(decision.hours.toFixed(2))
+    ]);
+    diagnostic.push([
+      index + 2, displayAssignee(entry.assignee), entry.date, (entry.sessions || []).join(', '),
+      entry.occurrences || 1, entry.ticketUrl,
+      decision.start ? formatDateTime(decision.start) : '', decision.end ? formatDateTime(decision.end) : '',
+      decision.hours == null ? '' : Number(decision.hours.toFixed(2)), decision.rule,
+      decision.startSource || '', decision.endSource || '', decision.confidence,
+      decision.needsReview || !decision.end ? 'YES' : 'NO'
+    ]);
+  });
+
+  const workbook = XLSX.utils.book_new();
+  const kpiSheet = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+  styleKpiSheet(kpiSheet, rows.length);
+  XLSX.utils.book_append_sheet(workbook, kpiSheet, 'KPI');
+  const diagnosticSheet = XLSX.utils.aoa_to_sheet(diagnostic);
+  styleDiagnosticSheet(diagnosticSheet, diagnostic.length - 1);
+  XLSX.utils.book_append_sheet(workbook, diagnosticSheet, 'Diagnostic');
+  return { workbook, updated: rows.length, skipped: 0, review };
 }
 
 export function fillWorkbook(workbook, entries, scans) {
+  const dailyEntries = collapseDailyEntries(entries);
   const sheetName = workbook.SheetNames.find(name => /^kpi$/i.test(name)) || workbook.SheetNames[0];
   const sheet = workbook.Sheets[sheetName];
   const matrix = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: true });
@@ -123,7 +166,7 @@ export function fillWorkbook(workbook, entries, scans) {
     if (row[cols.start] || row[cols.end]) { skipped += 1; continue; }
     const date = normalizeDate(row[cols.date]);
     const assignee = normalizePerson(row[cols.assignee]);
-    const candidates = entries.filter(entry => entry.ticketUrl === url && entry.date === date && (!assignee || normalizePerson(entry.assignee) === assignee));
+    const candidates = dailyEntries.filter(entry => entry.ticketUrl === url && entry.date === date && (!assignee || normalizePerson(entry.assignee) === assignee));
     const entry = candidates[0];
     if (!entry) { review += 1; continue; }
     const decision = decideTimes(entry, scans);
@@ -177,13 +220,53 @@ function setCell(sheet, zeroRow, zeroCol, value, type = 's') {
   const previous = sheet[address] || {};
   sheet[address] = { ...previous, v: value, t: type };
 }
+function styleKpiSheet(sheet, rowCount) {
+  const widths = [14,14,58,58,14,20,12,14,12,22,22,12];
+  sheet['!cols'] = widths.map(wch => ({ wch }));
+  sheet['!autofilter'] = { ref: `A1:L${Math.max(1, rowCount + 1)}` };
+  const border = { top:{style:'thin',color:{rgb:'D0D7DE'}}, bottom:{style:'thin',color:{rgb:'D0D7DE'}}, left:{style:'thin',color:{rgb:'D0D7DE'}}, right:{style:'thin',color:{rgb:'D0D7DE'}} };
+  for (let col = 0; col < 12; col += 1) {
+    const cell = sheet[XLSX.utils.encode_cell({ r:0, c:col })];
+    if (cell) cell.s = { font:{bold:true,color:{rgb:'FFFFFF'}}, fill:{fgColor:{rgb:'1F4E78'}}, alignment:{horizontal:'center',vertical:'center'}, border };
+  }
+  for (let row = 1; row <= rowCount; row += 1) {
+    for (let col = 0; col < 12; col += 1) {
+      const address = XLSX.utils.encode_cell({ r:row, c:col });
+      const cell = sheet[address] || (sheet[address] = { t:'s', v:'' });
+      cell.s = { alignment:{vertical:'top',wrapText:true}, border, fill: row % 2 === 0 ? {fgColor:{rgb:'F7FAFC'}} : undefined };
+      if (col === 11 && cell.t === 'n') cell.z = '0.00';
+    }
+  }
+  sheet['!rows'] = [{ hpt:24 }, ...Array.from({length:rowCount}, () => ({ hpt:34 }))];
+}
+function styleDiagnosticSheet(sheet, rowCount) {
+  sheet['!cols'] = [9,14,13,20,12,58,22,22,10,30,45,45,12,14].map(wch => ({ wch }));
+  sheet['!autofilter'] = { ref: `A1:N${Math.max(1, rowCount + 1)}` };
+  for (let col = 0; col < 14; col += 1) {
+    const cell = sheet[XLSX.utils.encode_cell({r:0,c:col})];
+    if (cell) cell.s = {font:{bold:true,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'44546A'}},alignment:{horizontal:'center',vertical:'center'}};
+  }
+}
+function displayAssignee(value) {
+  return ({allief:'Allief',hizkia:'Hizkia',maulana:'Maulana',dwiki:'Dwiky'})[normalizePerson(value)] || value;
+}
+function displayDate(value) {
+  const [year, month, day] = String(value).split('-');
+  return year && month && day ? `${day}/${month}/${year}` : value;
+}
+function generatedFileName(entries) {
+  const date = collapseDailyEntries(entries)[0]?.date || '';
+  const [year, month] = date.split('-');
+  const months = { '01':'Januari','02':'Februari','03':'Maret','04':'April','05':'Mei','06':'Juni','07':'Juli','08':'Agustus','09':'September','10':'Oktober','11':'November','12':'Desember' };
+  return `KPI-${months[month] || month || 'Export'}-${year || 'Data'}-GITUBGEN-V2.xlsx`;
+}
 function selectedAssignees() { return [...document.querySelectorAll('[name="assignee"]:checked')].map(input => input.value); }
 function setBusy(busy) { scanButton.disabled = busy; scanButton.textContent = busy ? 'Scanning...' : 'Mulai scan GitHub'; }
 function showError(text) { message.style.color = '#cf222e'; message.textContent = text; }
 function showInfo(text) { message.style.color = '#1a7f37'; message.textContent = text; }
 function clearMessage() { message.textContent = ''; }
 function refreshExportState() {
-  exportButton.classList.toggle('hidden', !(state.workbook && state.entries.length && state.job?.status === 'completed'));
+  exportButton.classList.toggle('hidden', !(state.entries.length && state.job?.status === 'completed'));
 }
 async function restoreJob() { const job = await chrome.runtime.sendMessage({ type: 'GET_JOB' }); if (job) updateJob(job); }
 async function resetJob() {

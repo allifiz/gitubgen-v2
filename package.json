@@ -1,6 +1,6 @@
 {
   "name": "gitubgen-v2",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "Chrome/Edge extension untuk rekonsiliasi DSM dan activity GitHub menjadi KPI Excel.",
@@ -9,10 +9,10 @@
     "test": "node --test tests/*.test.js",
     "check": "npm run test && npm run build"
   },
-  "dependencies": {
-    "xlsx": "^0.18.5"
-  },
   "devDependencies": {
     "esbuild": "^0.25.0"
+  },
+  "dependencies": {
+    "xlsx-js-style": "^1.2.0"
   }
 }
