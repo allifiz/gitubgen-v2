@@ -1,6 +1,6 @@
 import * as XLSX from 'xlsx-js-style';
 import { collapseDailyEntries, parseDsm } from './lib/dsm-parser.js';
-import { decideTimes } from './lib/activity-matcher.js';
+import { decideTimes, uniqueTicketPeriod } from './lib/activity-matcher.js';
 import { normalizeGitHubUrl } from './lib/github-url.js';
 import { normalizePerson } from './lib/person.js';
 import { systemType, ticketType, weekOfMonth } from './lib/kpi-fields.js';
@@ -135,7 +135,27 @@ export function createWorkbookFromDsm(entries, scans) {
   const diagnosticSheet = XLSX.utils.aoa_to_sheet(diagnostic);
   styleDiagnosticSheet(diagnosticSheet, diagnostic.length - 1);
   XLSX.utils.book_append_sheet(workbook, diagnosticSheet, 'Diagnostic');
+  appendUniqueTicketsSheet(workbook, dailyEntries, scans);
   return { workbook, updated: rows.length, skipped: 0, review };
+}
+
+function appendUniqueTicketsSheet(workbook, dailyEntries, scans) {
+  const groups = new Map();
+  for (const entry of dailyEntries) {
+    const key = `${normalizePerson(entry.assignee)}|${entry.ticketUrl}`;
+    groups.set(key, [...(groups.get(key) || []), entry]);
+  }
+  const headers = ['Assignee','Type','Ticket Title','Ticket URL','Status','Priority','Date','End Date','Week'];
+  const rows = [...groups.values()].map(group => {
+    const ordered=[...group].sort((a,b)=>a.date.localeCompare(b.date));
+    const first=ordered[0], latest=ordered.at(-1), period=uniqueTicketPeriod(ordered,scans);
+    return [displayAssignee(first.assignee),systemType(first.ticketTitle),first.ticketTitle,first.ticketUrl,latest.status,'',displayDate(period.startDate),period.endDate?displayDate(period.endDate):'',weekOfMonth(period.startDate)];
+  }).sort((a,b)=>`${a[6]}|${a[0]}|${a[3]}`.localeCompare(`${b[6]}|${b[0]}|${b[3]}`));
+  const sheet=XLSX.utils.aoa_to_sheet([headers,...rows]);
+  sheet['!cols']=[14,14,58,58,20,12,14,14,12].map(wch=>({wch}));
+  sheet['!autofilter']={ref:`A1:I${Math.max(1,rows.length+1)}`};
+  for(let col=0;col<headers.length;col+=1){const cell=sheet[XLSX.utils.encode_cell({r:0,c:col})];if(cell)cell.s={font:{bold:true,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'548235'}},alignment:{horizontal:'center',vertical:'center'}};}
+  XLSX.utils.book_append_sheet(workbook,sheet,'Rekap Tiket Unik');
 }
 
 export function fillWorkbook(workbook, entries, scans) {
@@ -188,6 +208,11 @@ export function fillWorkbook(workbook, entries, scans) {
   if (workbook.SheetNames.includes('Diagnostic')) delete workbook.Sheets.Diagnostic;
   else workbook.SheetNames.push('Diagnostic');
   workbook.Sheets.Diagnostic = diagnosticSheet;
+  if (workbook.SheetNames.includes('Rekap Tiket Unik')) {
+    delete workbook.Sheets['Rekap Tiket Unik'];
+    workbook.SheetNames = workbook.SheetNames.filter(name => name !== 'Rekap Tiket Unik');
+  }
+  appendUniqueTicketsSheet(workbook, dailyEntries, scans);
   return { workbook, updated, skipped, review };
 }
 

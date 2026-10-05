@@ -88,7 +88,7 @@ function mergeInputItems(items = []) {
 function hasStatusPairForDates(scan, dates = []) {
   return dates.every(date => {
     const events = (scan.events || []).filter(event => jakartaDate(event.datetime) === date);
-    const start = events.find(event => /in progress/i.test(event.text) && /(status|moved|changed)/i.test(event.text));
+    const start = events.find(event => /(todo|in progress)/i.test(event.text) && /(status|moved|changed)/i.test(event.text));
     return start && events.some(event =>
       /ready to review/i.test(event.text) && /(status|moved|changed)/i.test(event.text) &&
       new Date(event.datetime) > new Date(start.datetime)
