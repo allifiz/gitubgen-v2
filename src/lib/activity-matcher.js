@@ -2,6 +2,8 @@ import { fallbackStart } from './dsm-parser.js';
 
 const TZ = 'Asia/Jakarta';
 const START_STATUSES = new Set(['todo', 'in progress']);
+const IGNORED_END = /(assigned|unassigned|mentioned this|added this to|added a parent issue|added sub-issues?|converted this|changed the title|transferred this)/i;
+const WORK_ACTIVITY = /(linked a pull request|pull request|merged(?: commit| .* into)|commit(?:ted)?|closed this|closed as completed)/i;
 
 function localParts(iso) {
   if (!iso) return null;
@@ -37,9 +39,10 @@ function eventPriority(event, targetStatus) {
   if (event.sourceKind === 'parent' && event.targetStatus === targetStatus) return 100;
   if (event.targetStatus === targetStatus) return 90;
   const text = `${event.type || ''} ${event.text || ''}`.toLowerCase();
-  if (targetStatus === 'deployed' && /(closed this|closed as completed)/.test(text)) return 85;
-  if (event.sourceKind !== 'parent' && /(merged|linked a pull request|pull request)/.test(text)) return 70;
-  if (event.sourceKind !== 'parent' && /commit/.test(text)) return 60;
+  if (IGNORED_END.test(text)) return 0;
+  if (targetStatus === 'deployed' && /(closed this|closed as completed)/.test(text)) return event.sourceKind === 'parent' ? 95 : 85;
+  if (targetStatus === 'staging' && /merged(?: commit| .* into) staging/.test(text)) return event.sourceKind === 'parent' ? 88 : 85;
+  if (WORK_ACTIVITY.test(text)) return event.sourceKind === 'parent' ? 80 : 70;
   return 0;
 }
 
@@ -55,8 +58,20 @@ export function decideTimes(entry, scansByUrl) {
   const linkedEvents = (parent?.linkedUrls || []).flatMap(url => relevantEvents(scansByUrl[url], entry.date, 'linked'));
   const allEvents = [...parentEvents, ...linkedEvents].sort((a, b) => new Date(a.datetime) - new Date(b.datetime));
   const targetStatus = normalizeStatus(entry.status);
-  const end = pickEnd(allEvents, targetStatus);
+  let end = pickEnd(allEvents, targetStatus);
   if (!end) return { start:null,end:null,hours:null,rule:'NEEDS_REVIEW_NO_VALID_END',startSource:null,endSource:null,confidence:'LOW',needsReview:true };
+
+  // "In Progress" adalah penanda mulai, bukan penanda selesai. Jika ada bukti
+  // kerja setelah transisi tersebut pada hari yang sama, gunakan aktivitas
+  // terakhir itu sebagai titik observasi akhir tanpa mengubah status DSM.
+  if (targetStatus === 'in progress') {
+    const laterWork = allEvents.filter(event =>
+      new Date(event.datetime) > new Date(end.datetime) &&
+      !IGNORED_END.test(`${event.type || ''} ${event.text || ''}`) &&
+      (WORK_ACTIVITY.test(`${event.type || ''} ${event.text || ''}`) || event.targetStatus)
+    ).at(-1);
+    if (laterWork) end = laterWork;
+  }
 
   const candidates = allEvents.filter(event => START_STATUSES.has(event.targetStatus) && new Date(event.datetime) < new Date(end.datetime));
   const parentStarts = candidates.filter(event => event.sourceKind === 'parent');
@@ -87,7 +102,13 @@ export function effectiveWorkHours(startIso, endIso) {
 
 function decision(start,end,rule,startSource,endSource,confidence,evidence={}) {
   const hours=effectiveWorkHours(start,end);
-  return {start,end,hours,rule,startSource,endSource,confidence,startEvidence:evidence.startEvent?.text||'',endEvidence:evidence.endEvent?.text||'',needsReview:hours<=0};
+  return {
+    start,end,hours,rule,startSource,endSource,confidence,
+    startSourceKind:evidence.startEvent?.sourceKind || (String(startSource || '').startsWith('DSM ') ? 'dsm-fallback' : ''),
+    endSourceKind:evidence.endEvent?.sourceKind || '',
+    startEvidence:evidence.startEvent?.text||'',endEvidence:evidence.endEvent?.text||'',
+    needsReview:hours<=0
+  };
 }
 
 export function uniqueTicketPeriod(entries,scansByUrl) {

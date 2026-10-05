@@ -52,11 +52,12 @@ async function startScan() {
   if (!state.entries.length) return;
   const grouped = new Map();
   for (const entry of collapseDailyEntries(state.entries)) {
-    const dates = grouped.get(entry.ticketUrl) || new Set();
-    dates.add(entry.date);
-    grouped.set(entry.ticketUrl, dates);
+    const current = grouped.get(entry.ticketUrl) || { dates: new Set(), targets: {} };
+    current.dates.add(entry.date);
+    current.targets[entry.date] = [...new Set([...(current.targets[entry.date] || []), entry.status].filter(Boolean))];
+    grouped.set(entry.ticketUrl, current);
   }
-  const items = [...grouped].map(([url, dates]) => ({ url, dates: [...dates] }));
+  const items = [...grouped].map(([url, value]) => ({ url, dates: [...value.dates], targets: value.targets }));
   setBusy(true);
   const response = await chrome.runtime.sendMessage({
     type: 'START_SCAN', items, maxDepth: Number($('#depth').value)
@@ -105,7 +106,7 @@ export function createWorkbookFromDsm(entries, scans) {
   const dailyEntries = collapseDailyEntries(entries);
   const headers = ['Assignee','Type','Ticket Title','Ticket URL','Type','Status','Priority','Date','Week','Start Time','End Time','Hour'];
   const rows = [];
-  const diagnostic = [['KPI Row','Assignee','Date','DSM Sessions','Occurrences','Ticket URL','Start Time','End Time','Hour','Rule','Start Source','End Source','Confidence','Needs Review']];
+  const diagnostic = [['KPI Row','Assignee','Date','DSM Sessions','Occurrences','Ticket URL','Start Time','End Time','Hour','Rule','Start Source','Start Source Type','Start Evidence','End Source','End Source Type','End Evidence','Confidence','Needs Review']];
   let review = 0;
 
   dailyEntries.forEach((entry, index) => {
@@ -123,7 +124,8 @@ export function createWorkbookFromDsm(entries, scans) {
       entry.occurrences || 1, entry.ticketUrl,
       decision.start ? formatDateTime(decision.start) : '', decision.end ? formatDateTime(decision.end) : '',
       decision.hours == null ? '' : Number(decision.hours.toFixed(2)), decision.rule,
-      decision.startSource || '', decision.endSource || '', decision.confidence,
+      decision.startSource || '', decision.startSourceKind || '', decision.startEvidence || '',
+      decision.endSource || '', decision.endSourceKind || '', decision.endEvidence || '', decision.confidence,
       decision.needsReview || !decision.end ? 'YES' : 'NO'
     ]);
   });
@@ -176,7 +178,7 @@ export function fillWorkbook(workbook, entries, scans) {
   };
   if ([cols.url, cols.date, cols.start, cols.end].some(index => index < 0)) throw new Error('Kolom Ticket URL, Date, Start Time, atau End Time tidak ditemukan.');
 
-  const diagnostic = [['KPI Row','Assignee','Date','Session','Ticket URL','Start Time','End Time','Hour','Rule','Start Source','End Source','Confidence','Needs Review']];
+  const diagnostic = [['KPI Row','Assignee','Date','Session','Ticket URL','Start Time','End Time','Hour','Rule','Start Source','Start Source Type','Start Evidence','End Source','End Source Type','End Evidence','Confidence','Needs Review']];
   let updated = 0, skipped = 0, review = 0;
 
   for (let rowIndex = headerIndex + 1; rowIndex < matrix.length; rowIndex += 1) {
@@ -199,12 +201,14 @@ export function fillWorkbook(workbook, entries, scans) {
       rowIndex + 1, entry.assignee, entry.date, entry.session, entry.ticketUrl,
       decision.start ? formatDateTime(decision.start) : '', decision.end ? formatDateTime(decision.end) : '',
       decision.hours == null ? '' : Number(decision.hours.toFixed(2)), decision.rule,
-      decision.startSource || '', decision.endSource || '', decision.confidence, decision.needsReview ? 'YES' : 'NO'
+      decision.startSource || '', decision.startSourceKind || '', decision.startEvidence || '',
+      decision.endSource || '', decision.endSourceKind || '', decision.endEvidence || '',
+      decision.confidence, decision.needsReview ? 'YES' : 'NO'
     ]);
   }
 
   const diagnosticSheet = XLSX.utils.aoa_to_sheet(diagnostic);
-  diagnosticSheet['!cols'] = [8,16,12,10,55,20,20,10,30,50,50,12,14].map(wch => ({ wch }));
+  diagnosticSheet['!cols'] = [8,16,12,10,55,20,20,10,30,48,18,55,48,18,55,12,14].map(wch => ({ wch }));
   if (workbook.SheetNames.includes('Diagnostic')) delete workbook.Sheets.Diagnostic;
   else workbook.SheetNames.push('Diagnostic');
   workbook.Sheets.Diagnostic = diagnosticSheet;
@@ -265,9 +269,9 @@ function styleKpiSheet(sheet, rowCount) {
   sheet['!rows'] = [{ hpt:24 }, ...Array.from({length:rowCount}, () => ({ hpt:34 }))];
 }
 function styleDiagnosticSheet(sheet, rowCount) {
-  sheet['!cols'] = [9,14,13,20,12,58,22,22,10,30,45,45,12,14].map(wch => ({ wch }));
-  sheet['!autofilter'] = { ref: `A1:N${Math.max(1, rowCount + 1)}` };
-  for (let col = 0; col < 14; col += 1) {
+  sheet['!cols'] = [9,14,13,20,12,58,22,22,10,30,48,18,55,48,18,55,12,14].map(wch => ({ wch }));
+  sheet['!autofilter'] = { ref: `A1:R${Math.max(1, rowCount + 1)}` };
+  for (let col = 0; col < 18; col += 1) {
     const cell = sheet[XLSX.utils.encode_cell({r:0,c:col})];
     if (cell) cell.s = {font:{bold:true,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'44546A'}},alignment:{horizontal:'center',vertical:'center'}};
   }

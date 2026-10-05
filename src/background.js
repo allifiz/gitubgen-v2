@@ -47,10 +47,10 @@ async function startScan(inputItems, maxDepth) {
       try {
         const scan = await scanUrl(item.url);
         job.scans[item.url] = scan;
-        if (item.depth < maxDepth && !hasStatusPairForDates(scan, item.dates)) {
+        if (item.depth < maxDepth && needsRelatedScan(scan, item.targets)) {
           for (const linkedUrl of scan.linkedUrls || []) {
             if (!job.scans[linkedUrl] && !job.queue.some(q => q.url === linkedUrl)) {
-              job.queue.push({ url: linkedUrl, dates: item.dates, depth: item.depth + 1 });
+              job.queue.push({ url: linkedUrl, dates: item.dates, targets: item.targets, depth: item.depth + 1 });
               job.total += 1;
             }
           }
@@ -78,22 +78,31 @@ async function startScan(inputItems, maxDepth) {
 function mergeInputItems(items = []) {
   const byUrl = new Map();
   for (const item of items) {
-    const dates = byUrl.get(item.url) || new Set();
-    for (const date of item.dates || []) dates.add(date);
-    byUrl.set(item.url, dates);
+    const current = byUrl.get(item.url) || { dates: new Set(), targets: {} };
+    for (const date of item.dates || []) current.dates.add(date);
+    for (const [date, statuses] of Object.entries(item.targets || {})) {
+      current.targets[date] = [...new Set([...(current.targets[date] || []), ...statuses])];
+    }
+    byUrl.set(item.url, current);
   }
-  return [...byUrl].map(([url, dates]) => ({ url, dates: [...dates] }));
+  return [...byUrl].map(([url, value]) => ({ url, dates: [...value.dates], targets: value.targets }));
 }
 
-function hasStatusPairForDates(scan, dates = []) {
-  return dates.every(date => {
+function needsRelatedScan(scan, targets = {}) {
+  return Object.entries(targets).some(([date, statuses]) => {
     const events = (scan.events || []).filter(event => jakartaDate(event.datetime) === date);
-    const start = events.find(event => /(todo|in progress)/i.test(event.text) && /(status|moved|changed)/i.test(event.text));
-    return start && events.some(event =>
-      /ready to review/i.test(event.text) && /(status|moved|changed)/i.test(event.text) &&
-      new Date(event.datetime) > new Date(start.datetime)
-    );
+    const hasStart = events.some(event => /(?:to\s+)?(todo|in progress)\b/i.test(event.text) && /(status|moved|changed)/i.test(event.text));
+    const hasEnd = statuses.some(status => hasValidEnd(events, status));
+    return !hasStart || !hasEnd;
   });
+}
+
+function hasValidEnd(events, status = '') {
+  const normalized = String(status).toLowerCase().replace(/[-_]+/g, ' ').replace(/\s+/g, ' ').trim();
+  if (events.some(event => new RegExp(`to\\s+${normalized.replace(/ /g, '\\s+')}\\b`, 'i').test(event.text) && /(status|moved|changed)/i.test(event.text))) return true;
+  if (normalized === 'deployed' && events.some(event => /closed this|closed as completed/i.test(event.text))) return true;
+  if (normalized === 'staging' && events.some(event => /merged(?: commit| .* into) staging/i.test(event.text))) return true;
+  return events.some(event => /(linked a pull request|merged|commit(?:ted)?|closed this)/i.test(event.text));
 }
 
 function jakartaDate(iso) {

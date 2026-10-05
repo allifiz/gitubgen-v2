@@ -1,6 +1,6 @@
 {
   "name": "gitubgen-v2",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "description": "Chrome/Edge extension untuk rekonsiliasi DSM dan activity GitHub menjadi KPI Excel.",

@@ -17,7 +17,7 @@ function collectEvents() {
   const times = [...document.querySelectorAll('relative-time[datetime], time[datetime]')];
   const seen = new Set();
   return times.map(time => {
-    const container = time.closest('.TimelineItem, [data-testid="timeline-item"], .js-timeline-item') || time.parentElement;
+    const container = findEventContainer(time);
     const text = (container?.innerText || time.parentElement?.innerText || '').replace(/\s+/g, ' ').trim();
     const datetime = time.getAttribute('datetime');
     const key = `${datetime}|${text}`;
@@ -25,6 +25,20 @@ function collectEvents() {
     seen.add(key);
     return { datetime, text, type: classify(text) };
   }).filter(Boolean);
+}
+
+function findEventContainer(time) {
+  const known = time.closest('.TimelineItem, [data-testid="timeline-item"], .js-timeline-item');
+  if (known) return known;
+  const signal = /(moved this|changed (?:the )?status|linked a pull request|merged|commit|closed this|reopened this|commented|opened|assigned|mentioned this|added (?:this|a parent|sub-issues?))/i;
+  let node = time.parentElement;
+  let best = node;
+  for (let depth = 0; node && depth < 7; depth += 1, node = node.parentElement) {
+    const text = (node.innerText || '').replace(/\s+/g, ' ').trim();
+    if (text.length > 0 && text.length < 1000) best = node;
+    if (signal.test(text) && text.length < 1000) return node;
+  }
+  return best;
 }
 
 function classify(text) {

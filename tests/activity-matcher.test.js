@@ -63,3 +63,43 @@ test('tidak memakai mention atau assign sebagai end', () => {
   assert.equal(result.rule,'NEEDS_REVIEW_NO_VALID_END');
   assert.equal(result.end,null);
 });
+
+test('PR linked pada parent adalah end valid bila status target tidak tercatat', () => {
+  const url='https://github.com/GO-Bimbel/db-go/issues/2799';
+  const result=decideTimes({ticketUrl:url,date:'2026-09-01',session:'11:00',status:'staging'}, {
+    [url]:{url,linkedUrls:[],events:[
+      {datetime:'2026-09-01T02:27:04Z',type:'pull_request',text:'allifgobimbel linked a pull request that will close this issue #2801'}
+    ]}
+  });
+  assert.match(result.start,/09:00:00/);
+  assert.equal(result.end,'2026-09-01T02:27:04Z');
+  assert.equal(result.endSourceKind,'parent');
+});
+
+test('durasi beberapa detik tetap valid dan tidak dipanjangkan', () => {
+  const url='https://github.com/GO-Bimbel/db-go/issues/2879';
+  const result=decideTimes({ticketUrl:url,date:'2026-09-30',session:'11:00',status:'deployed'}, {
+    [url]:{url,linkedUrls:[],events:[
+      {datetime:'2026-09-30T04:56:35Z',type:'status',text:'HadiGODev moved this to Todo in BE-TASK'},
+      {datetime:'2026-09-30T04:56:40Z',type:'pull_request',text:'allifgobimbel linked a pull request that will close this issue #2880'}
+    ]}
+  });
+  assert.equal(result.start,'2026-09-30T04:56:35Z');
+  assert.equal(result.end,'2026-09-30T04:56:40Z');
+  assert.ok(result.hours > 0 && result.hours < 0.01);
+  assert.equal(result.needsReview,false);
+});
+
+test('In Progress memakai aktivitas kerja terakhir pada hari yang sama sebagai titik akhir', () => {
+  const url='https://github.com/GO-Bimbel/go-superapp-api/issues/3807';
+  const result=decideTimes({ticketUrl:url,date:'2026-09-08',session:'11:00',status:'in progress'}, {
+    [url]:{url,linkedUrls:[],events:[
+      {datetime:'2026-09-08T04:21:36Z',type:'status',text:'allifgobimbel moved this to In Progress in BE-TASK'},
+      {datetime:'2026-09-08T08:55:03Z',type:'pull_request',text:'allifgobimbel linked a pull request that will close this issue #3812'},
+      {datetime:'2026-09-08T08:56:08Z',type:'status',text:'allifgobimbel moved this from In Progress to Ready to Review in BE-TASK'}
+    ]}
+  });
+  assert.equal(result.start,'2026-09-08T04:21:36Z');
+  assert.equal(result.end,'2026-09-08T08:56:08Z');
+  assert.ok(result.hours > 0);
+});

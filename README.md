@@ -11,8 +11,9 @@ Extension Chromium (Chrome dan Microsoft Edge) untuk merekonsiliasi file DSM, ac
 - Status dan judul diambil dari kemunculan DSM terakhir pada hari tersebut.
 - Memindai timeline issue/PR melalui tab background.
 - Menyimpan checkpoint scan di `chrome.storage.local`.
-- Prioritas waktu: `In Progress` → `Ready to Review` pada parent dan tanggal DSM yang sama.
-- Parent/link/sub-issue baru diperiksa jika status pair tidak lengkap.
+- Start menerima status `Todo` atau `In Progress` pada tanggal DSM yang sama.
+- End mengutamakan status DSM; jika tidak tercatat, gunakan aktivitas kerja GitHub yang valid pada parent, sub-issue, atau PR.
+- Parent/link/sub-issue diperiksa berdasarkan status DSM per tanggal, bukan hanya pasangan `In Progress` → `Ready to Review`.
 - Fallback Start September: DSM 11:00 → 09:00; DSM 15:00/16:00 → 13:00.
 - End Time harus berasal dari activity GitHub; jika tidak ada, row ditandai `Needs Review`.
 - Hanya mengisi row KPI yang Start dan End-nya sama-sama kosong.
@@ -94,6 +95,8 @@ Contoh:
 Keputusan dan URL sumber ditulis pada sheet `Diagnostic`.
 
 - Event mention, assign, add-to-project, dan add-parent tidak dianggap sebagai bukti selesai.
+- PR linked, merge, commit, dan issue closed adalah end valid. Durasi sangat pendek tetap dipertahankan jika timestamp GitHub memang demikian.
+- Untuk DSM berstatus `In Progress`, transisi tersebut adalah start. Jika ada aktivitas kerja sesudahnya pada hari yang sama, aktivitas terakhir menjadi titik observasi end.
 - Fallback hanya untuk Start Time: DSM 11:00 menjadi 09:00; DSM 15:00/16:00 menjadi 13:00.
 - End Time tidak pernah dibuat dari waktu DSM.
 - Durasi memakai jam kerja efektif 09:00–17:00 (Sabtu sampai 16:00), dipotong istirahat 12:00–13:00 atau Jumat 11:30–13:30.
