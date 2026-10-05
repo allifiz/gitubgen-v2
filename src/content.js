@@ -28,7 +28,7 @@ function collectEvents() {
 }
 
 function classify(text) {
-  if (/in progress|ready to review|status/i.test(text)) return 'status';
+  if (/todo|in progress|ready to review|staging|deployed|status/i.test(text)) return 'status';
   if (/pull request|merged|review/i.test(text)) return 'pull_request';
   if (/commit/i.test(text)) return 'commit';
   if (/closed|reopened/i.test(text)) return 'issue_state';
