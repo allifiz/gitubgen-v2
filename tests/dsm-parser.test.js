@@ -15,3 +15,20 @@ test('fallback mengikuti sesi DSM', () => {
   assert.match(fallbackStart('2026-09-08','11:00'), /09:00:00/);
   assert.match(fallbackStart('2026-09-08','16:00'), /13:00:00/);
 });
+
+test('mengenali ejaan Dwiky dan URL Markdown yang di-escape', () => {
+  const input = `**DAILY STANDUP MEETING (DSM)**  
+**18 September 2026 Pukul 16.00**
+
+**Dwiky**
+
+## **Task 1 | [GOEXPERT-SISWA] FIX: Error Message**
+
+* **GitHub** : https\\://github.com/GO-Bimbel/go-expert-api/issues/677`;
+  const entries = parseDsm(input, { assignees: ['dwiki'], year: 2026 });
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].assignee, 'dwiki');
+  assert.equal(entries[0].date, '2026-09-18');
+  assert.equal(entries[0].session, '16:00');
+  assert.equal(entries[0].ticketUrl, 'https://github.com/GO-Bimbel/go-expert-api/issues/677');
+});
