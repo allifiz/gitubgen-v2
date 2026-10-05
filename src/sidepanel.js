@@ -2,6 +2,7 @@ import * as XLSX from 'xlsx';
 import { parseDsm } from './lib/dsm-parser.js';
 import { decideTimes } from './lib/activity-matcher.js';
 import { normalizeGitHubUrl } from './lib/github-url.js';
+import { normalizePerson } from './lib/person.js';
 
 const state = { entries: [], workbook: null, kpiFileName: null, job: null };
 const $ = selector => document.querySelector(selector);
@@ -153,7 +154,6 @@ function findHeaderRow(matrix) {
 }
 function findColumn(headers, names) { return headers.findIndex(header => names.includes(header)); }
 function normalizeHeader(value) { return String(value || '').trim().toLowerCase().replace(/\s+/g, ' '); }
-function normalizePerson(value) { return String(value || '').toLowerCase().replace(/gobimbel/g, '').replace(/[^a-z]/g, ''); }
 function normalizeDate(value) {
   if (typeof value === 'number') {
     const date = XLSX.SSF.parse_date_code(value);
