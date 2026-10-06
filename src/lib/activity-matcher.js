@@ -59,12 +59,24 @@ export function decideTimes(entry, scansByUrl) {
   const allEvents = [...parentEvents, ...linkedEvents].sort((a, b) => new Date(a.datetime) - new Date(b.datetime));
   const targetStatus = normalizeStatus(entry.status);
   let end = pickEnd(allEvents, targetStatus);
+  const sessions = entry.sessions || [entry.session].filter(Boolean);
+  const isLateInProgress = targetStatus.startsWith('in progress') && sessions.some(session => /^16:/.test(session));
+  const workdayEnd = isLateInProgress ? workdayCloseIso(entry.date) : null;
+  if (workdayEnd) {
+    const startEvent = allEvents.find(event => START_STATUSES.has(event.targetStatus));
+    const start = entry.continuedFromPreviousDay
+      ? startOfWorkdayIso(entry.date)
+      : startEvent?.datetime || fallbackStart(entry.date, entry.firstSession || sessions[0] || entry.session);
+    return decision(start,workdayEnd,'IN_PROGRESS_UNTIL_WORKDAY_END',
+      entry.continuedFromPreviousDay ? 'CONTINUED 09:00' : startEvent?.sourceUrl || `DSM ${entry.firstSession || sessions[0] || entry.session}`,
+      'WORKDAY_END','MEDIUM',{startEvent,endEvent:null});
+  }
   if (!end) return { start:null,end:null,hours:null,rule:'NEEDS_REVIEW_NO_VALID_END',startSource:null,endSource:null,confidence:'LOW',needsReview:true };
 
   // "In Progress" adalah penanda mulai, bukan penanda selesai. Jika ada bukti
   // kerja setelah transisi tersebut pada hari yang sama, gunakan aktivitas
   // terakhir itu sebagai titik observasi akhir tanpa mengubah status DSM.
-  if (targetStatus === 'in progress') {
+  if (targetStatus.startsWith('in progress')) {
     const laterWork = allEvents.filter(event =>
       new Date(event.datetime) > new Date(end.datetime) &&
       !IGNORED_END.test(`${event.type || ''} ${event.text || ''}`) &&
@@ -77,9 +89,20 @@ export function decideTimes(entry, scansByUrl) {
   const parentStarts = candidates.filter(event => event.sourceKind === 'parent');
   const startEvent = (parentStarts.length ? parentStarts : candidates)[0] || null;
   const firstSession = entry.firstSession || entry.sessions?.[0] || entry.session;
-  const start = startEvent?.datetime || fallbackStart(entry.date, firstSession);
+  const start = entry.continuedFromPreviousDay ? startOfWorkdayIso(entry.date) : startEvent?.datetime || fallbackStart(entry.date, firstSession);
   const rule = startEvent ? (startEvent.sourceKind === 'parent' ? 'PARENT_START_MATCHED_END' : 'LINKED_START_MATCHED_END') : 'DSM_FALLBACK_MATCHED_GITHUB_END';
   return decision(start,end.datetime,rule,startEvent?.sourceUrl || `DSM ${firstSession}`,end.sourceUrl,startEvent && end.sourceKind === 'parent' ? 'HIGH' : startEvent ? 'MEDIUM' : 'LOW',{startEvent,endEvent:end});
+}
+
+function startOfWorkdayIso(date) {
+  return `${date}T09:00:00+07:00`;
+}
+
+function workdayCloseIso(date) {
+  const [year,month,day]=date.split('-').map(Number);
+  const weekday=new Date(Date.UTC(year,month-1,day)).getUTCDay();
+  if (weekday===0) return null;
+  return `${date}T${weekday===6?'16:00:00':'17:00:00'}+07:00`;
 }
 
 export function effectiveWorkHours(startIso, endIso) {
@@ -118,4 +141,8 @@ export function uniqueTicketPeriod(entries,scansByUrl) {
   const start=events.find(e=>START_STATUSES.has(e.targetStatus));
   const close=[...events].reverse().find(e=>e.targetStatus==='deployed'||/(closed this|closed as completed)/i.test(`${e.type||''} ${e.text||''}`));
   return {startDate:localDate(start?.datetime)||first.date,endDate:localDate(close?.datetime)||''};
+}
+
+export function targetDateForTicket(ticketUrl, scansByUrl) {
+  return scansByUrl[ticketUrl]?.targetDate || '';
 }

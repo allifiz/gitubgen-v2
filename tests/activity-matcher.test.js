@@ -103,3 +103,30 @@ test('In Progress memakai aktivitas kerja terakhir pada hari yang sama sebagai t
   assert.equal(result.end,'2026-09-08T08:56:08Z');
   assert.ok(result.hours > 0);
 });
+
+test('In Progress pada DSM 16 berakhir pada jam pulang kerja', () => {
+  const url='https://github.com/GO-Bimbel/service/issues/9';
+  const result=decideTimes({ticketUrl:url,date:'2026-09-08',session:'16:00',sessions:['16:00'],status:'In Progress'}, {
+    [url]:{url,linkedUrls:[],events:[{datetime:'2026-09-08T07:00:00Z',type:'status',text:'moved this to In Progress'}]}
+  });
+  assert.equal(result.rule,'IN_PROGRESS_UNTIL_WORKDAY_END');
+  assert.match(result.end,/2026-09-08T17:00:00\+07:00/);
+});
+
+test('lanjutan tiket hari berikutnya dimulai tepat pukul 09.00', () => {
+  const url='https://github.com/GO-Bimbel/service/issues/9';
+  const result=decideTimes({ticketUrl:url,date:'2026-09-09',session:'16:00',sessions:['16:00'],status:'In Progress',continuedFromPreviousDay:true}, {
+    [url]:{url,linkedUrls:[],events:[]}
+  });
+  assert.match(result.start,/2026-09-09T09:00:00\+07:00/);
+  assert.match(result.end,/2026-09-09T17:00:00\+07:00/);
+});
+
+test('In Progress pada DSM 16 hari Sabtu berakhir pukul 16.00', () => {
+  const url='https://github.com/GO-Bimbel/service/issues/10';
+  const result=decideTimes({ticketUrl:url,date:'2026-09-12',session:'16:00',sessions:['16:00'],status:'In Progress'}, {
+    [url]: {url,events:[],linkedUrls:[]}
+  });
+  assert.equal(result.end,'2026-09-12T16:00:00+07:00');
+  assert.equal(result.hours,3);
+});

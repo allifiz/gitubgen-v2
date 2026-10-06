@@ -13,6 +13,48 @@ async function revealTimeline() {
   await wait(500);
 }
 
+async function revealProjectFields() {
+  const buttons = [...document.querySelectorAll('button, summary')].filter(element =>
+    /show more project fields/i.test(element.textContent || element.getAttribute('aria-label') || '')
+  );
+  buttons.forEach(button => button.click());
+  if (buttons.length) await wait(400);
+}
+
+function normalizeProjectDate(value = '') {
+  const text = String(value).replace(/\s+/g, ' ').trim();
+  const iso = text.match(/\b(\d{4})-(\d{2})-(\d{2})\b/);
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+  const numeric = text.match(/\b(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})\b/);
+  if (numeric) return `${numeric[3]}-${numeric[2].padStart(2, '0')}-${numeric[1].padStart(2, '0')}`;
+  const months = {jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12};
+  const named = text.match(/\b(?:target date\s*)?([A-Z][a-z]{2,8})\s+(\d{1,2}),?\s+(\d{4})\b/i);
+  if (named) {
+    const month = months[named[1].slice(0,3).toLowerCase()];
+    if (month) return `${named[3]}-${String(month).padStart(2,'0')}-${named[2].padStart(2,'0')}`;
+  }
+  return '';
+}
+
+function collectTargetDate() {
+  const candidates = [...document.querySelectorAll('body *')].filter(element =>
+    /^target date$/i.test((element.textContent || '').replace(/\s+/g, ' ').trim())
+  );
+  for (const label of candidates) {
+    let node = label.parentElement;
+    for (let depth = 0; node && depth < 5; depth += 1, node = node.parentElement) {
+      const text = (node.innerText || '').replace(/\s+/g, ' ').trim();
+      if (text.length > 200) break;
+      const date = normalizeProjectDate(text.replace(/target date/i, ''));
+      if (date) return date;
+      const time = node.querySelector('time[datetime], relative-time[datetime]');
+      const datetime = time?.getAttribute('datetime');
+      if (datetime) return datetime.slice(0,10);
+    }
+  }
+  return '';
+}
+
 function collectEvents() {
   const times = [...document.querySelectorAll('relative-time[datetime], time[datetime]')];
   const seen = new Set();
@@ -66,6 +108,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type !== 'COLLECT_GITHUB_TIMELINE') return undefined;
   (async () => {
     await revealTimeline();
+    await revealProjectFields();
     const title = document.querySelector('[data-testid="issue-title"], .js-issue-title')?.textContent?.trim() || document.title;
     sendResponse({
       ok: true,
@@ -73,6 +116,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       title,
       events: collectEvents(),
       linkedUrls: linkedUrls(),
+      targetDate: collectTargetDate(),
       collectedAt: new Date().toISOString()
     });
   })().catch(error => sendResponse({ ok: false, error: error.message }));

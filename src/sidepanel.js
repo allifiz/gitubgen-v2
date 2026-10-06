@@ -1,6 +1,6 @@
 import * as XLSX from 'xlsx-js-style';
 import { collapseDailyEntries, parseDsm } from './lib/dsm-parser.js';
-import { decideTimes, uniqueTicketPeriod } from './lib/activity-matcher.js';
+import { decideTimes, uniqueTicketPeriod, targetDateForTicket } from './lib/activity-matcher.js';
 import { normalizeGitHubUrl } from './lib/github-url.js';
 import { normalizePerson } from './lib/person.js';
 import { systemType, ticketType, weekOfMonth } from './lib/kpi-fields.js';
@@ -103,8 +103,8 @@ async function exportWorkbook() {
 }
 
 export function createWorkbookFromDsm(entries, scans) {
-  const dailyEntries = collapseDailyEntries(entries);
-  const headers = ['Assignee','Type','Ticket Title','Ticket URL','Type','Status','Priority','Date','Week','Start Time','End Time','Hour'];
+  const dailyEntries = prepareDailyEntries(entries);
+  const headers = ['Assignee','Type','Ticket Title','Ticket URL','Type','Status','Priority','Date','Target Date','Week','Start Time','End Time','Hour'];
   const rows = [];
   const diagnostic = [['KPI Row','Assignee','Date','DSM Sessions','Occurrences','Ticket URL','Start Time','End Time','Hour','Rule','Start Source','Start Source Type','Start Evidence','End Source','End Source Type','End Evidence','Confidence','Needs Review']];
   let review = 0;
@@ -115,7 +115,7 @@ export function createWorkbookFromDsm(entries, scans) {
     rows.push([
       displayAssignee(entry.assignee), systemType(entry.ticketTitle), entry.ticketTitle,
       entry.ticketUrl, ticketType(entry.ticketTitle), entry.status, '', displayDate(entry.date),
-      weekOfMonth(entry.date), decision.start ? formatDateTime(decision.start) : '',
+      displayDateOrBlank(targetDateForTicket(entry.ticketUrl, scans)), weekOfMonth(entry.date), decision.start ? formatDateTime(decision.start) : '',
       decision.end ? formatDateTime(decision.end) : '',
       decision.hours == null ? '' : Number(decision.hours.toFixed(2))
     ]);
@@ -131,6 +131,7 @@ export function createWorkbookFromDsm(entries, scans) {
   });
 
   const workbook = XLSX.utils.book_new();
+  rows.sort((a,b)=>`${sortDateValue(a[7])}|${a[3]}`.localeCompare(`${sortDateValue(b[7])}|${b[3]}`));
   const kpiSheet = XLSX.utils.aoa_to_sheet([headers, ...rows]);
   styleKpiSheet(kpiSheet, rows.length);
   XLSX.utils.book_append_sheet(workbook, kpiSheet, 'KPI');
@@ -151,8 +152,10 @@ function appendUniqueTicketsSheet(workbook, dailyEntries, scans) {
   const rows = [...groups.values()].map(group => {
     const ordered=[...group].sort((a,b)=>a.date.localeCompare(b.date));
     const first=ordered[0], latest=ordered.at(-1), period=uniqueTicketPeriod(ordered,scans);
-    return [displayAssignee(first.assignee),systemType(first.ticketTitle),first.ticketTitle,first.ticketUrl,latest.status,'',displayDate(period.startDate),period.endDate?displayDate(period.endDate):'',weekOfMonth(period.startDate)];
-  }).sort((a,b)=>`${a[6]}|${a[0]}|${a[3]}`.localeCompare(`${b[6]}|${b[0]}|${b[3]}`));
+    const exactStarts=ordered.map(entry=>decideTimes(entry,scans).start).filter(Boolean).sort((a,b)=>new Date(a)-new Date(b));
+    const exactStartDate=exactStarts[0]?.slice(0,10) || period.startDate;
+    return [displayAssignee(first.assignee),systemType(first.ticketTitle),first.ticketTitle,first.ticketUrl,latest.status,'',displayDate(exactStartDate),period.endDate?displayDate(period.endDate):'',weekOfMonth(exactStartDate)];
+  }).sort((a,b)=>`${sortDateValue(a[6])}|${a[0]}|${a[3]}`.localeCompare(`${sortDateValue(b[6])}|${b[0]}|${b[3]}`));
   const sheet=XLSX.utils.aoa_to_sheet([headers,...rows]);
   sheet['!cols']=[14,14,58,58,20,12,14,14,12].map(wch=>({wch}));
   sheet['!autofilter']={ref:`A1:I${Math.max(1,rows.length+1)}`};
@@ -161,17 +164,28 @@ function appendUniqueTicketsSheet(workbook, dailyEntries, scans) {
 }
 
 export function fillWorkbook(workbook, entries, scans) {
-  const dailyEntries = collapseDailyEntries(entries);
+  const dailyEntries = prepareDailyEntries(entries);
   const sheetName = workbook.SheetNames.find(name => /^kpi$/i.test(name)) || workbook.SheetNames[0];
-  const sheet = workbook.Sheets[sheetName];
-  const matrix = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: true });
+  let sheet = workbook.Sheets[sheetName];
+  let matrix = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: true });
   const headerIndex = findHeaderRow(matrix);
   if (headerIndex < 0) throw new Error('Header KPI tidak ditemukan.');
-  const headers = matrix[headerIndex].map(normalizeHeader);
+  let headers = matrix[headerIndex].map(normalizeHeader);
+  if (!headers.includes('target date')) {
+    const dateIndex=findColumn(headers,['date','tanggal']);
+    const insertAt=dateIndex+1;
+    for(const row of matrix) row.splice(insertAt,0,'');
+    matrix[headerIndex][insertAt]='Target Date';
+    sheet=XLSX.utils.aoa_to_sheet(matrix);
+    workbook.Sheets[sheetName]=sheet;
+    styleKpiSheet(sheet,Math.max(0,matrix.length-headerIndex-1));
+    headers=matrix[headerIndex].map(normalizeHeader);
+  }
   const cols = {
     assignee: findColumn(headers, ['assignee', 'pic']),
     url: findColumn(headers, ['ticket url', 'url']),
     date: findColumn(headers, ['date', 'tanggal']),
+    targetDate: findColumn(headers, ['target date']),
     start: findColumn(headers, ['start time', 'start']),
     end: findColumn(headers, ['end time', 'end']),
     hour: findColumn(headers, ['hour', 'hours', 'durasi'])
@@ -185,6 +199,10 @@ export function fillWorkbook(workbook, entries, scans) {
     const row = matrix[rowIndex];
     const url = normalizeGitHubUrl(String(row[cols.url] || ''));
     if (!url) continue;
+    if (cols.targetDate >= 0) {
+      const targetDate=targetDateForTicket(url,scans);
+      setCell(sheet,rowIndex,cols.targetDate,displayDateOrBlank(targetDate));
+    }
     if (row[cols.start] || row[cols.end]) { skipped += 1; continue; }
     const date = normalizeDate(row[cols.date]);
     const assignee = normalizePerson(row[cols.assignee]);
@@ -217,6 +235,7 @@ export function fillWorkbook(workbook, entries, scans) {
     workbook.SheetNames = workbook.SheetNames.filter(name => name !== 'Rekap Tiket Unik');
   }
   appendUniqueTicketsSheet(workbook, dailyEntries, scans);
+  sortKpiSheetByDate(workbook.Sheets[sheetName]);
   return { workbook, updated, skipped, review };
 }
 
@@ -250,23 +269,45 @@ function setCell(sheet, zeroRow, zeroCol, value, type = 's') {
   sheet[address] = { ...previous, v: value, t: type };
 }
 function styleKpiSheet(sheet, rowCount) {
-  const widths = [14,14,58,58,14,20,12,14,12,22,22,12];
+  const widths = [14,14,58,58,14,20,12,14,14,12,22,22,12];
   sheet['!cols'] = widths.map(wch => ({ wch }));
-  sheet['!autofilter'] = { ref: `A1:L${Math.max(1, rowCount + 1)}` };
+  sheet['!autofilter'] = { ref: `A1:M${Math.max(1, rowCount + 1)}` };
   const border = { top:{style:'thin',color:{rgb:'D0D7DE'}}, bottom:{style:'thin',color:{rgb:'D0D7DE'}}, left:{style:'thin',color:{rgb:'D0D7DE'}}, right:{style:'thin',color:{rgb:'D0D7DE'}} };
-  for (let col = 0; col < 12; col += 1) {
+  for (let col = 0; col < 13; col += 1) {
     const cell = sheet[XLSX.utils.encode_cell({ r:0, c:col })];
     if (cell) cell.s = { font:{bold:true,color:{rgb:'FFFFFF'}}, fill:{fgColor:{rgb:'1F4E78'}}, alignment:{horizontal:'center',vertical:'center'}, border };
   }
   for (let row = 1; row <= rowCount; row += 1) {
-    for (let col = 0; col < 12; col += 1) {
+    for (let col = 0; col < 13; col += 1) {
       const address = XLSX.utils.encode_cell({ r:row, c:col });
       const cell = sheet[address] || (sheet[address] = { t:'s', v:'' });
       cell.s = { alignment:{vertical:'top',wrapText:true}, border, fill: row % 2 === 0 ? {fgColor:{rgb:'F7FAFC'}} : undefined };
-      if (col === 11 && cell.t === 'n') cell.z = '0.00';
+      if (col === 12 && cell.t === 'n') cell.z = '0.00';
     }
   }
   sheet['!rows'] = [{ hpt:24 }, ...Array.from({length:rowCount}, () => ({ hpt:34 }))];
+}
+
+function prepareDailyEntries(entries) {
+  const rows=collapseDailyEntries(entries).sort((a,b)=>`${a.ticketUrl}|${a.date}`.localeCompare(`${b.ticketUrl}|${b.date}`));
+  const previousByUrl=new Map();
+  for(const row of rows){
+    const previous=previousByUrl.get(row.ticketUrl);
+    row.continuedFromPreviousDay=Boolean(previous && normalizeStatusText(previous.status).startsWith('in progress') && dayDifference(previous.date,row.date)===1);
+    previousByUrl.set(row.ticketUrl,row);
+  }
+  return rows.sort((a,b)=>`${a.date}|${a.ticketUrl}`.localeCompare(`${b.date}|${b.ticketUrl}`));
+}
+function normalizeStatusText(v=''){return String(v).toLowerCase().replace(/[_-]+/g,' ').replace(/\s+/g,' ').trim();}
+function dayDifference(a,b){return Math.round((Date.parse(`${b}T00:00:00Z`)-Date.parse(`${a}T00:00:00Z`))/86400000);}
+function displayDateOrBlank(value){return value?displayDate(value):'';}
+function sortDateValue(value){const p=String(value||'').match(/^(\d{2})\/(\d{2})\/(\d{4})$/);return p?`${p[3]}-${p[2]}-${p[1]}`:String(value||'');}
+function sortKpiSheetByDate(sheet){
+  const matrix=XLSX.utils.sheet_to_json(sheet,{header:1,defval:'',raw:true});
+  const headerIndex=findHeaderRow(matrix);if(headerIndex<0)return;
+  const headers=matrix[headerIndex].map(normalizeHeader),dateIndex=findColumn(headers,['date','tanggal']),urlIndex=findColumn(headers,['ticket url','url']);
+  const prefix=matrix.slice(0,headerIndex+1),body=matrix.slice(headerIndex+1).sort((a,b)=>`${sortDateValue(a[dateIndex])}|${a[urlIndex]}`.localeCompare(`${sortDateValue(b[dateIndex])}|${b[urlIndex]}`));
+  const replacement=XLSX.utils.aoa_to_sheet([...prefix,...body]);Object.keys(sheet).forEach(key=>delete sheet[key]);Object.assign(sheet,replacement);styleKpiSheet(sheet,body.length);
 }
 function styleDiagnosticSheet(sheet, rowCount) {
   sheet['!cols'] = [9,14,13,20,12,58,22,22,10,30,48,18,55,48,18,55,12,14].map(wch => ({ wch }));

@@ -2,7 +2,7 @@
 
 Extension Chromium (Chrome dan Microsoft Edge) untuk merekonsiliasi file DSM, activity GitHub, parent/sub-issue, dan KPI Excel.
 
-## Fokus versi 0.2
+## Fokus versi 0.5
 
 - Berjalan memakai sesi GitHub yang sudah login di browser; tidak memerlukan webhook atau GitHub App organisasi.
 - Membaca tiket berulang dari DSM per assignee, tanggal, dan sesi.
@@ -18,6 +18,9 @@ Extension Chromium (Chrome dan Microsoft Edge) untuk merekonsiliasi file DSM, ac
 - End Time harus berasal dari activity GitHub; jika tidak ada, row ditandai `Needs Review`.
 - Hanya mengisi row KPI yang Start dan End-nya sama-sama kosong.
 - Membuat ulang sheet `Diagnostic` dengan sumber keputusan per row.
+- Menambahkan `Target Date` dari field GitHub Project pada setiap row KPI.
+- Tiket yang masih `In Progress` pada DSM 16:00 ditutup sementara pada jam pulang kerja; jika dilanjutkan esok hari, start berikutnya menjadi 09:00.
+- Sheet KPI dan Rekap Tiket Unik diurutkan dari tanggal paling awal.
 
 ## Build
 
@@ -60,7 +63,7 @@ Hasil extension berada di folder `dist/`.
 Workbook baru menggunakan urutan kolom tetap:
 
 ```text
-Assignee | Type | Ticket Title | Ticket URL | Type | Status | Priority | Date | Week | Start Time | End Time | Hour
+Assignee | Type | Ticket Title | Ticket URL | Type | Status | Priority | Date | Target Date | Week | Start Time | End Time | Hour
 ```
 
 Workbook berisi sheet `KPI` dengan header, border, zebra rows, filter, lebar kolom, dan format Hour; serta sheet `Diagnostic` untuk sumber keputusan waktu.
@@ -97,10 +100,12 @@ Keputusan dan URL sumber ditulis pada sheet `Diagnostic`.
 - Event mention, assign, add-to-project, dan add-parent tidak dianggap sebagai bukti selesai.
 - PR linked, merge, commit, dan issue closed adalah end valid. Durasi sangat pendek tetap dipertahankan jika timestamp GitHub memang demikian.
 - Untuk DSM berstatus `In Progress`, transisi tersebut adalah start. Jika ada aktivitas kerja sesudahnya pada hari yang sama, aktivitas terakhir menjadi titik observasi end.
+- Khusus tiket yang masih `In Progress` pada DSM 16:00, End Time adalah jam pulang: 17:00 pada Senin–Jumat atau 16:00 pada Sabtu. Minggu tidak dibuatkan jam pulang otomatis.
+- Jika tiket `In Progress` tersebut muncul lagi tepat pada hari berikutnya, Start Time hari lanjutan dibuat 09:00.
 - Fallback hanya untuk Start Time: DSM 11:00 menjadi 09:00; DSM 15:00/16:00 menjadi 13:00.
 - End Time tidak pernah dibuat dari waktu DSM.
 - Durasi memakai jam kerja efektif 09:00–17:00 (Sabtu sampai 16:00), dipotong istirahat 12:00–13:00 atau Jumat 11:30–13:30.
-- Export baru berisi sheet `KPI`, `Diagnostic`, dan `Rekap Tiket Unik`. Pada rekap unik, `Date` adalah tanggal start pertama dan `End Date` adalah tanggal issue ditutup/deployed.
+- Export baru berisi sheet `KPI`, `Diagnostic`, dan `Rekap Tiket Unik`. Pada rekap unik, `Date` diambil dari Start Time pertama yang benar-benar diputuskan untuk KPI, sedangkan `End Date` adalah tanggal issue ditutup/deployed.
 
 ## Batasan versi awal
 
