@@ -1,6 +1,6 @@
 import * as XLSX from 'xlsx-js-style';
 import { collapseDailyEntries, parseDsm } from './lib/dsm-parser.js';
-import { decideTimes, uniqueTicketPeriod, targetDateForTicket } from './lib/activity-matcher.js';
+import { decideTimes, uniqueTicketPeriod, targetDateForTicket, latestGitHubStatus } from './lib/activity-matcher.js';
 import { normalizeGitHubUrl } from './lib/github-url.js';
 import { normalizePerson } from './lib/person.js';
 import { systemType, ticketType, weekOfMonth } from './lib/kpi-fields.js';
@@ -154,7 +154,8 @@ function appendUniqueTicketsSheet(workbook, dailyEntries, scans) {
     const first=ordered[0], latest=ordered.at(-1), period=uniqueTicketPeriod(ordered,scans);
     const exactStarts=ordered.map(entry=>decideTimes(entry,scans).start).filter(Boolean).sort((a,b)=>new Date(a)-new Date(b));
     const exactStartDate=exactStarts[0]?.slice(0,10) || period.startDate;
-    return [displayAssignee(first.assignee),systemType(first.ticketTitle),first.ticketTitle,first.ticketUrl,latest.status,'',displayDate(exactStartDate),period.endDate?displayDate(period.endDate):'',weekOfMonth(exactStartDate)];
+    const githubStatus=latestGitHubStatus(first.ticketUrl,scans);
+    return [displayAssignee(first.assignee),systemType(first.ticketTitle),first.ticketTitle,first.ticketUrl,displayStatus(githubStatus || latest.status),'',displayDate(exactStartDate),period.endDate?displayDate(period.endDate):'',weekOfMonth(exactStartDate)];
   }).sort((a,b)=>`${sortDateValue(a[6])}|${a[0]}|${a[3]}`.localeCompare(`${sortDateValue(b[6])}|${b[0]}|${b[3]}`));
   const sheet=XLSX.utils.aoa_to_sheet([headers,...rows]);
   sheet['!cols']=[14,14,58,58,20,12,14,14,12].map(wch=>({wch}));
@@ -319,6 +320,10 @@ function styleDiagnosticSheet(sheet, rowCount) {
 }
 function displayAssignee(value) {
   return ({allief:'Allief',hizkia:'Hizkia',maulana:'Maulana',dwiki:'Dwiky'})[normalizePerson(value)] || value;
+}
+function displayStatus(value) {
+  const normalized=normalizeStatusText(value);
+  return ({todo:'Todo','in progress':'In Progress','ready to review':'Ready to Review',staging:'Staging',deployed:'Deployed'})[normalized] || value;
 }
 function displayDate(value) {
   const [year, month, day] = String(value).split('-');

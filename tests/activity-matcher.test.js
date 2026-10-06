@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { decideTimes } from '../src/lib/activity-matcher.js';
+import { decideTimes, latestGitHubStatus } from '../src/lib/activity-matcher.js';
 
 test('status pair parent menjadi prioritas dan jam efektif dipakai', () => {
   const url='https://github.com/GO-Bimbel/service/issues/1';
@@ -129,4 +129,16 @@ test('In Progress pada DSM 16 hari Sabtu berakhir pukul 16.00', () => {
   });
   assert.equal(result.end,'2026-09-12T16:00:00+07:00');
   assert.equal(result.hours,3);
+});
+
+test('rekap unik mengambil status GitHub paling terakhir', () => {
+  const url='https://github.com/GO-Bimbel/service/issues/11';
+  const status=latestGitHubStatus(url,{
+    [url]:{url,events:[
+      {datetime:'2026-09-10T03:00:00Z',type:'status',text:'moved this from Todo to In Progress'},
+      {datetime:'2026-09-10T08:00:00Z',type:'status',text:'moved this from In Progress to Ready to Review'},
+      {datetime:'2026-09-11T04:00:00Z',type:'status',text:'moved this from Ready to Review to Staging'}
+    ]}
+  });
+  assert.equal(status,'staging');
 });

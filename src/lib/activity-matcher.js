@@ -146,3 +146,12 @@ export function uniqueTicketPeriod(entries,scansByUrl) {
 export function targetDateForTicket(ticketUrl, scansByUrl) {
   return scansByUrl[ticketUrl]?.targetDate || '';
 }
+
+export function latestGitHubStatus(ticketUrl, scansByUrl) {
+  const events = (scansByUrl[ticketUrl]?.events || [])
+    .filter(event => event.datetime)
+    .map(event => ({ datetime: event.datetime, status: transitionTarget(event) }))
+    .filter(event => event.status)
+    .sort((a, b) => new Date(b.datetime) - new Date(a.datetime));
+  return events[0]?.status || '';
+}

@@ -106,6 +106,7 @@ Keputusan dan URL sumber ditulis pada sheet `Diagnostic`.
 - End Time tidak pernah dibuat dari waktu DSM.
 - Durasi memakai jam kerja efektif 09:00–17:00 (Sabtu sampai 16:00), dipotong istirahat 12:00–13:00 atau Jumat 11:30–13:30.
 - Export baru berisi sheet `KPI`, `Diagnostic`, dan `Rekap Tiket Unik`. Pada rekap unik, `Date` diambil dari Start Time pertama yang benar-benar diputuskan untuk KPI, sedangkan `End Date` adalah tanggal issue ditutup/deployed.
+- `Status` pada Rekap Tiket Unik diambil dari perubahan status GitHub terakhir pada parent issue; status DSM terakhir hanya dipakai sebagai fallback.
 
 ## Batasan versi awal
 
