@@ -2,14 +2,14 @@
 
 Extension Chromium (Chrome dan Microsoft Edge) untuk merekonsiliasi file DSM, activity GitHub, parent/sub-issue, dan KPI Excel.
 
-## Fokus versi 0.5
+## Fokus versi 0.6
 
-- Berjalan memakai sesi GitHub yang sudah login di browser; tidak memerlukan webhook atau GitHub App organisasi.
+- Status history dibaca dari GitHub GraphQL menggunakan token read-only; tidak memerlukan webhook atau GitHub App organisasi.
 - Membaca tiket berulang dari DSM per assignee, tanggal, dan sesi.
 - Bisa membuat workbook KPI dari nol hanya dengan upload DSM; file KPI lama bersifat opsional.
 - Dua sesi tiket yang sama pada tanggal yang sama digabung menjadi satu row KPI berdasarkan `Assignee + Ticket URL + Date`.
 - Status dan judul diambil dari kemunculan DSM terakhir pada hari tersebut.
-- Memindai timeline issue/PR melalui tab background.
+- Memindai activity non-status issue/PR melalui tab background dan mengambil status history dari GraphQL.
 - Menyimpan checkpoint scan di `chrome.storage.local`.
 - Start hanya memakai transisi `In Progress` pada parent issue di tanggal DSM yang sama. `Todo` dan status sub-issue tidak dianggap sebagai awal pengerjaan; jika `In Progress` parent tidak ditemukan, gunakan fallback DSM.
 - End mengutamakan status DSM; jika tidak tercatat, gunakan aktivitas kerja GitHub yang valid pada parent, sub-issue, atau PR.
@@ -56,9 +56,10 @@ Hasil extension berada di folder `dist/`.
 2. File KPI `.xlsx` bersifat opsional. Kosongkan untuk membuat KPI baru dari DSM.
 3. Pilih assignee: Hizkia, Maulana, Dwiki, atau Allief.
 4. Pilih kedalaman scan.
-5. Klik **Mulai scan GitHub**.
-6. Jangan logout dari GitHub selama scan berlangsung.
-7. Setelah selesai, periksa ringkasan lalu klik **Download Excel**.
+5. Masukkan token GitHub read-only dengan scope `repo`, `read:org`, dan `read:project`. Token hanya berada selama proses scan dan tidak ditulis ke workbook/checkpoint.
+6. Klik **Mulai scan GitHub**.
+7. Jangan logout dari GitHub selama scan berlangsung.
+8. Setelah selesai, periksa ringkasan lalu klik **Download Excel**.
 
 Workbook baru menggunakan urutan kolom tetap:
 
@@ -110,9 +111,9 @@ Keputusan dan URL sumber ditulis pada sheet `Diagnostic`.
 
 ## Batasan versi awal
 
-- GitHub sering mengubah struktur HTML timeline; selector content script mungkin perlu disesuaikan.
+- Activity PR/commit masih bergantung pada struktur HTML, tetapi status Project tidak lagi diambil dari HTML.
 - SheetJS Community Edition mempertahankan sebagian besar workbook, tetapi fitur Excel khusus seperti macro tidak didukung.
-- Timeline yang tidak dirender oleh GitHub tidak dapat dibaca tanpa API token.
+- Jika GitHub tidak membuat event status (misalnya akibat bug GitHub Projects), GraphQL akan mengembalikan riwayat kosong dan aturan fallback tetap berlaku.
 - Link terkait dipindai satu tingkat secara default agar scan tidak melebar ke seluruh repository.
 
 ## Pengembangan

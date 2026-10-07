@@ -1,3 +1,5 @@
+import { fetchStatusHistory } from './lib/github-graphql.js';
+
 const STORAGE_KEY = 'gitubgenJob';
 let running = false;
 
@@ -11,7 +13,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       sendResponse({ ok: false, error: 'Scan masih berjalan.' });
       return undefined;
     }
-    startScan(message.items, message.maxDepth ?? 1).catch(() => {});
+    startScan(message.items, message.maxDepth ?? 1, message.githubToken).catch(() => {});
     sendResponse({ ok: true });
     return undefined;
   }
@@ -26,8 +28,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   return undefined;
 });
 
-async function startScan(inputItems, maxDepth) {
+async function startScan(inputItems, maxDepth, githubToken) {
   if (running) throw new Error('Scan masih berjalan.');
+  if (!githubToken) throw new Error('Token GitHub wajib diisi untuk membaca GraphQL.');
   running = true;
   try {
     const previous = (await chrome.storage.local.get(STORAGE_KEY))[STORAGE_KEY];
@@ -45,7 +48,7 @@ async function startScan(inputItems, maxDepth) {
       const item = job.queue.shift();
       if (job.scans[item.url]) continue;
       try {
-        const scan = await scanUrl(item.url);
+        const scan = await scanUrl(item.url, githubToken);
         job.scans[item.url] = scan;
         if (item.depth < maxDepth && needsRelatedScan(scan, item.targets)) {
           for (const linkedUrl of scan.linkedUrls || []) {
@@ -112,14 +115,23 @@ function jakartaDate(iso) {
   }).format(new Date(iso));
 }
 
-async function scanUrl(url) {
+async function scanUrl(url, githubToken) {
+  const statusEvents = await fetchStatusHistory(url, githubToken);
   const tab = await chrome.tabs.create({ url, active: false });
   try {
     await waitForTab(tab.id);
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
         const response = await chrome.tabs.sendMessage(tab.id, { type: 'COLLECT_GITHUB_TIMELINE' });
-        if (response?.ok) return response;
+        if (response?.ok) {
+          const pageEvents = (response.events || []).filter(event => !isScrapedStatusTransition(event));
+          return {
+            ...response,
+            events: [...pageEvents, ...statusEvents].sort((a, b) => new Date(a.datetime) - new Date(b.datetime)),
+            statusHistorySource: 'graphql',
+            statusEventCount: statusEvents.length
+          };
+        }
         throw new Error(response?.error || 'Timeline tidak terbaca.');
       } catch (error) {
         if (attempt === 2) throw error;
@@ -130,6 +142,10 @@ async function scanUrl(url) {
     await chrome.tabs.remove(tab.id).catch(() => {});
   }
   throw new Error('Scan gagal.');
+}
+
+function isScrapedStatusTransition(event) {
+  return event?.type === 'status' && /(moved this|changed (?:the )?status)/i.test(event.text || '');
 }
 
 function waitForTab(tabId) {

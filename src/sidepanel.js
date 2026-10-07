@@ -48,6 +48,8 @@ async function loadWorkbook() {
 async function startScan() {
   clearMessage();
   if (!dsmFile.files[0]) return showError('Pilih file DSM terlebih dahulu.');
+  const githubToken = $('#githubToken').value.trim();
+  if (!githubToken) return showError('Isi GitHub token read-only untuk mengambil status history GraphQL.');
   await loadDsm();
   if (!state.entries.length) return;
   const grouped = new Map();
@@ -60,7 +62,7 @@ async function startScan() {
   const items = [...grouped].map(([url, value]) => ({ url, dates: [...value.dates], targets: value.targets }));
   setBusy(true);
   const response = await chrome.runtime.sendMessage({
-    type: 'START_SCAN', items, maxDepth: Number($('#depth').value)
+    type: 'START_SCAN', items, maxDepth: Number($('#depth').value), githubToken
   });
   if (!response?.ok) {
     setBusy(false);

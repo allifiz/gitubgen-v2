@@ -31,6 +31,10 @@
       <label>Batas penelusuran
         <select id="depth"><option value="0">Parent saja</option><option value="1" selected>Parent + link/sub-issue</option></select>
       </label>
+      <label class="token-label">GitHub token (read-only)
+        <input id="githubToken" type="password" autocomplete="off" placeholder="github_pat_... atau ghp_...">
+      </label>
+      <p class="hint">Dipakai langsung ke GraphQL dan hanya berada selama proses scan. Scope: repo, read:org, read:project.</p>
     </section>
 
     <section class="card">
@@ -47,7 +51,7 @@
 
     <section class="card note">
       <h2>Aturan September</h2>
-      <p><b>Prioritas:</b> In Progress → Ready to Review pada tanggal DSM yang sama.</p>
+      <p><b>Prioritas:</b> status history GraphQL pada parent, lalu activity PR/commit untuk End Time.</p>
       <p>Jika tidak lengkap, baru periksa link/sub-issue. Start yang tidak terlacak memakai fallback DSM; End wajib aktivitas GitHub.</p>
     </section>
     <p id="message" class="message"></p>
