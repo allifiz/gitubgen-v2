@@ -155,3 +155,11 @@ export function latestGitHubStatus(ticketUrl, scansByUrl) {
     .sort((a, b) => new Date(b.datetime) - new Date(a.datetime));
   return events[0]?.status || '';
 }
+
+export function isNextWorkday(previousDate, currentDate) {
+  const next = new Date(`${previousDate}T00:00:00Z`);
+  if (Number.isNaN(next.getTime())) return false;
+  do next.setUTCDate(next.getUTCDate() + 1);
+  while (next.getUTCDay() === 0);
+  return next.toISOString().slice(0, 10) === currentDate;
+}

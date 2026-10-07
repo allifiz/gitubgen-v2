@@ -1,6 +1,6 @@
 import * as XLSX from 'xlsx-js-style';
 import { collapseDailyEntries, parseDsm } from './lib/dsm-parser.js';
-import { decideTimes, uniqueTicketPeriod, targetDateForTicket, latestGitHubStatus } from './lib/activity-matcher.js';
+import { decideTimes, uniqueTicketPeriod, targetDateForTicket, latestGitHubStatus, isNextWorkday } from './lib/activity-matcher.js';
 import { normalizeGitHubUrl } from './lib/github-url.js';
 import { normalizePerson } from './lib/person.js';
 import { systemType, ticketType, weekOfMonth } from './lib/kpi-fields.js';
@@ -294,13 +294,16 @@ function prepareDailyEntries(entries) {
   const previousByUrl=new Map();
   for(const row of rows){
     const previous=previousByUrl.get(row.ticketUrl);
-    row.continuedFromPreviousDay=Boolean(previous && normalizeStatusText(previous.status).startsWith('in progress') && dayDifference(previous.date,row.date)===1);
+    row.continuedFromPreviousDay=Boolean(
+      previous &&
+      normalizeStatusText(previous.status).startsWith('in progress') &&
+      isNextWorkday(previous.date,row.date)
+    );
     previousByUrl.set(row.ticketUrl,row);
   }
   return rows.sort((a,b)=>`${a.date}|${a.ticketUrl}`.localeCompare(`${b.date}|${b.ticketUrl}`));
 }
 function normalizeStatusText(v=''){return String(v).toLowerCase().replace(/[_-]+/g,' ').replace(/\s+/g,' ').trim();}
-function dayDifference(a,b){return Math.round((Date.parse(`${b}T00:00:00Z`)-Date.parse(`${a}T00:00:00Z`))/86400000);}
 function displayDateOrBlank(value){return value?displayDate(value):'';}
 function sortDateValue(value){const p=String(value||'').match(/^(\d{2})\/(\d{2})\/(\d{4})$/);return p?`${p[3]}-${p[2]}-${p[1]}`:String(value||'');}
 function sortKpiSheetByDate(sheet){

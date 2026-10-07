@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { decideTimes, latestGitHubStatus } from '../src/lib/activity-matcher.js';
+import { decideTimes, latestGitHubStatus, isNextWorkday } from '../src/lib/activity-matcher.js';
 
 test('status pair parent menjadi prioritas dan jam efektif dipakai', () => {
   const url='https://github.com/GO-Bimbel/service/issues/1';
@@ -141,4 +141,11 @@ test('rekap unik mengambil status GitHub paling terakhir', () => {
     ]}
   });
   assert.equal(status,'staging');
+});
+
+test('kelanjutan memakai hari kerja berikutnya termasuk Sabtu ke Senin', () => {
+  assert.equal(isNextWorkday('2026-09-11','2026-09-12'),true);
+  assert.equal(isNextWorkday('2026-09-12','2026-09-14'),true);
+  assert.equal(isNextWorkday('2026-09-12','2026-09-13'),false);
+  assert.equal(isNextWorkday('2026-09-11','2026-09-14'),false);
 });

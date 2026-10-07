@@ -101,7 +101,7 @@ Keputusan dan URL sumber ditulis pada sheet `Diagnostic`.
 - PR linked, merge, commit, dan issue closed adalah end valid. Durasi sangat pendek tetap dipertahankan jika timestamp GitHub memang demikian.
 - Untuk DSM berstatus `In Progress`, transisi tersebut adalah start. Jika ada aktivitas kerja sesudahnya pada hari yang sama, aktivitas terakhir menjadi titik observasi end.
 - Khusus tiket yang masih `In Progress` pada DSM 16:00, End Time adalah jam pulang: 17:00 pada Senin–Jumat atau 16:00 pada Sabtu. Minggu tidak dibuatkan jam pulang otomatis.
-- Jika tiket `In Progress` tersebut muncul lagi tepat pada hari berikutnya, Start Time hari lanjutan dibuat 09:00.
+- Jika tiket masih `In Progress` pada sesi terakhir dan muncul lagi pada hari kerja berikutnya, Start Time hari lanjutan dibuat 09:00. Hari kerja adalah Senin–Sabtu, sehingga kelanjutan dari Sabtu diteruskan pada Senin.
 - Fallback hanya untuk Start Time: DSM 11:00 menjadi 09:00; DSM 15:00/16:00 menjadi 13:00.
 - End Time tidak pernah dibuat dari waktu DSM.
 - Durasi memakai jam kerja efektif 09:00–17:00 (Sabtu sampai 16:00), dipotong istirahat 12:00–13:00 atau Jumat 11:30–13:30.
