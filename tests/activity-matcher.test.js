@@ -149,3 +149,27 @@ test('kelanjutan memakai hari kerja berikutnya termasuk Sabtu ke Senin', () => {
   assert.equal(isNextWorkday('2026-09-12','2026-09-13'),false);
   assert.equal(isNextWorkday('2026-09-11','2026-09-14'),false);
 });
+
+test('In Progress diprioritaskan atas Todo sebagai start', () => {
+  const url='https://github.com/GO-Bimbel/service/issues/12';
+  const result=decideTimes({ticketUrl:url,date:'2026-09-22',session:'16:00',status:'Ready to Review'}, {
+    [url]:{url,linkedUrls:[],events:[
+      {datetime:'2026-09-22T02:00:00Z',type:'status',text:'moved this to Todo'},
+      {datetime:'2026-09-22T03:00:00Z',type:'status',text:'moved this from Todo to In Progress'},
+      {datetime:'2026-09-22T08:00:00Z',type:'status',text:'moved this from In Progress to Ready to Review'}
+    ]}
+  });
+  assert.equal(result.start,'2026-09-22T03:00:00Z');
+});
+
+test('Todo setelah jam pulang ditolak dan memakai fallback DSM', () => {
+  const url='https://github.com/GO-Bimbel/db-sekolah/issues/1272';
+  const result=decideTimes({ticketUrl:url,date:'2026-09-22',session:'16:00',sessions:['16:00'],status:'In Progress'}, {
+    [url]:{url,linkedUrls:[],events:[
+      {datetime:'2026-09-22T10:04:37Z',type:'status',text:'moved this to Todo'}
+    ]}
+  });
+  assert.equal(result.start,'2026-09-22T13:00:00+07:00');
+  assert.equal(result.end,'2026-09-22T17:00:00+07:00');
+  assert.equal(result.hours,4);
+});

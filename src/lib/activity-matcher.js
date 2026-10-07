@@ -52,6 +52,20 @@ function pickEnd(events, targetStatus) {
     .sort((a, b) => b.priority - a.priority || new Date(b.event.datetime) - new Date(a.event.datetime))[0]?.event || null;
 }
 
+function pickStart(events, beforeIso) {
+  const candidates = events.filter(event =>
+    START_STATUSES.has(event.targetStatus) &&
+    (!beforeIso || new Date(event.datetime) < new Date(beforeIso))
+  );
+  for (const status of ['in progress', 'todo']) {
+    const matching = candidates.filter(event => event.targetStatus === status);
+    const parent = matching.find(event => event.sourceKind === 'parent');
+    if (parent) return parent;
+    if (matching.length) return matching[0];
+  }
+  return null;
+}
+
 export function decideTimes(entry, scansByUrl) {
   const parent = scansByUrl[entry.ticketUrl];
   const parentEvents = relevantEvents(parent, entry.date, 'parent');
@@ -63,7 +77,7 @@ export function decideTimes(entry, scansByUrl) {
   const isLateInProgress = targetStatus.startsWith('in progress') && sessions.some(session => /^16:/.test(session));
   const workdayEnd = isLateInProgress ? workdayCloseIso(entry.date) : null;
   if (workdayEnd) {
-    const startEvent = allEvents.find(event => START_STATUSES.has(event.targetStatus));
+    const startEvent = pickStart(allEvents, workdayEnd);
     const start = entry.continuedFromPreviousDay
       ? startOfWorkdayIso(entry.date)
       : startEvent?.datetime || fallbackStart(entry.date, entry.firstSession || sessions[0] || entry.session);
@@ -85,9 +99,7 @@ export function decideTimes(entry, scansByUrl) {
     if (laterWork) end = laterWork;
   }
 
-  const candidates = allEvents.filter(event => START_STATUSES.has(event.targetStatus) && new Date(event.datetime) < new Date(end.datetime));
-  const parentStarts = candidates.filter(event => event.sourceKind === 'parent');
-  const startEvent = (parentStarts.length ? parentStarts : candidates)[0] || null;
+  const startEvent = pickStart(allEvents, end.datetime);
   const firstSession = entry.firstSession || entry.sessions?.[0] || entry.session;
   const start = entry.continuedFromPreviousDay ? startOfWorkdayIso(entry.date) : startEvent?.datetime || fallbackStart(entry.date, firstSession);
   const rule = startEvent ? (startEvent.sourceKind === 'parent' ? 'PARENT_START_MATCHED_END' : 'LINKED_START_MATCHED_END') : 'DSM_FALLBACK_MATCHED_GITHUB_END';
