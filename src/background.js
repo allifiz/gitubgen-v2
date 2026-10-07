@@ -91,9 +91,10 @@ function mergeInputItems(items = []) {
 function needsRelatedScan(scan, targets = {}) {
   return Object.entries(targets).some(([date, statuses]) => {
     const events = (scan.events || []).filter(event => jakartaDate(event.datetime) === date);
-    const hasStart = events.some(event => /(?:to\s+)?(todo|in progress)\b/i.test(event.text) && /(status|moved|changed)/i.test(event.text));
     const hasEnd = statuses.some(status => hasValidEnd(events, status));
-    return !hasStart || !hasEnd;
+    // Related issue/sub-issue hanya dibutuhkan untuk mencari bukti End.
+    // Start wajib berasal dari transisi In Progress pada parent issue.
+    return !hasEnd;
   });
 }
 

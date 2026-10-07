@@ -11,7 +11,7 @@ Extension Chromium (Chrome dan Microsoft Edge) untuk merekonsiliasi file DSM, ac
 - Status dan judul diambil dari kemunculan DSM terakhir pada hari tersebut.
 - Memindai timeline issue/PR melalui tab background.
 - Menyimpan checkpoint scan di `chrome.storage.local`.
-- Start mengutamakan `In Progress` pada tanggal DSM yang sama. `Todo` hanya digunakan jika tidak ada `In Progress` dan waktunya masih lebih awal daripada End Time; selain itu gunakan fallback DSM.
+- Start hanya memakai transisi `In Progress` pada parent issue di tanggal DSM yang sama. `Todo` dan status sub-issue tidak dianggap sebagai awal pengerjaan; jika `In Progress` parent tidak ditemukan, gunakan fallback DSM.
 - End mengutamakan status DSM; jika tidak tercatat, gunakan aktivitas kerja GitHub yang valid pada parent, sub-issue, atau PR.
 - Parent/link/sub-issue diperiksa berdasarkan status DSM per tanggal, bukan hanya pasangan `In Progress` → `Ready to Review`.
 - Fallback Start September: DSM 11:00 → 09:00; DSM 15:00/16:00 → 13:00.
@@ -90,9 +90,9 @@ Contoh:
 
 | Urutan | Start | End | Confidence |
 |---|---|---|---|
-| 1 | Parent `Todo`/`In Progress` | Status parent yang sama dengan status DSM | High |
-| 2 | Sub-issue `Todo`/`In Progress` | Status/PR/commit valid pada sub-issue | Medium |
-| 3 | Fallback sesi DSM | Activity GitHub valid pada tanggal DSM | Low |
+| 1 | Parent `In Progress` | Status parent yang sama dengan status DSM | High |
+| 2 | Parent `In Progress` | PR/commit valid pada sub-issue | Medium |
+| 3 | Fallback sesi DSM | Activity GitHub valid pada parent/sub-issue | Low |
 | 4 | Tidak ditemukan | Tidak ditemukan | Needs Review |
 
 Keputusan dan URL sumber ditulis pada sheet `Diagnostic`.

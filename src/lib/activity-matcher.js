@@ -1,7 +1,7 @@
 import { fallbackStart } from './dsm-parser.js';
 
 const TZ = 'Asia/Jakarta';
-const START_STATUSES = new Set(['todo', 'in progress']);
+const START_STATUS = 'in progress';
 const IGNORED_END = /(assigned|unassigned|mentioned this|added this to|added a parent issue|added sub-issues?|converted this|changed the title|transferred this)/i;
 const WORK_ACTIVITY = /(linked a pull request|pull request|merged(?: commit| .* into)|commit(?:ted)?|closed this|closed as completed)/i;
 
@@ -54,16 +54,10 @@ function pickEnd(events, targetStatus) {
 
 function pickStart(events, beforeIso) {
   const candidates = events.filter(event =>
-    START_STATUSES.has(event.targetStatus) &&
+    event.targetStatus === START_STATUS &&
     (!beforeIso || new Date(event.datetime) < new Date(beforeIso))
   );
-  for (const status of ['in progress', 'todo']) {
-    const matching = candidates.filter(event => event.targetStatus === status);
-    const parent = matching.find(event => event.sourceKind === 'parent');
-    if (parent) return parent;
-    if (matching.length) return matching[0];
-  }
-  return null;
+  return candidates.find(event => event.sourceKind === 'parent') || candidates[0] || null;
 }
 
 export function decideTimes(entry, scansByUrl) {
@@ -77,7 +71,7 @@ export function decideTimes(entry, scansByUrl) {
   const isLateInProgress = targetStatus.startsWith('in progress') && sessions.some(session => /^16:/.test(session));
   const workdayEnd = isLateInProgress ? workdayCloseIso(entry.date) : null;
   if (workdayEnd) {
-    const startEvent = pickStart(allEvents, workdayEnd);
+    const startEvent = pickStart(parentEvents, workdayEnd);
     const start = entry.continuedFromPreviousDay
       ? startOfWorkdayIso(entry.date)
       : startEvent?.datetime || fallbackStart(entry.date, entry.firstSession || sessions[0] || entry.session);
@@ -99,7 +93,7 @@ export function decideTimes(entry, scansByUrl) {
     if (laterWork) end = laterWork;
   }
 
-  const startEvent = pickStart(allEvents, end.datetime);
+  const startEvent = pickStart(parentEvents, end.datetime);
   const firstSession = entry.firstSession || entry.sessions?.[0] || entry.session;
   const start = entry.continuedFromPreviousDay ? startOfWorkdayIso(entry.date) : startEvent?.datetime || fallbackStart(entry.date, firstSession);
   const rule = startEvent ? (startEvent.sourceKind === 'parent' ? 'PARENT_START_MATCHED_END' : 'LINKED_START_MATCHED_END') : 'DSM_FALLBACK_MATCHED_GITHUB_END';
@@ -150,7 +144,7 @@ export function uniqueTicketPeriod(entries,scansByUrl) {
   const first=[...entries].sort((a,b)=>a.date.localeCompare(b.date))[0];
   const parent=scansByUrl[first.ticketUrl];
   const events=(parent?.events||[]).filter(e=>e.datetime).map(e=>({...e,targetStatus:transitionTarget(e)})).sort((a,b)=>new Date(a.datetime)-new Date(b.datetime));
-  const start=events.find(e=>START_STATUSES.has(e.targetStatus));
+  const start=events.find(e=>e.targetStatus===START_STATUS);
   const close=[...events].reverse().find(e=>e.targetStatus==='deployed'||/(closed this|closed as completed)/i.test(`${e.type||''} ${e.text||''}`));
   return {startDate:localDate(start?.datetime)||first.date,endDate:localDate(close?.datetime)||''};
 }

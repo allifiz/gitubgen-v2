@@ -15,19 +15,23 @@ test('status pair parent menjadi prioritas dan jam efektif dipakai', () => {
   assert.equal(result.confidence,'HIGH');
 });
 
-test('end activity linked memakai fallback DSM jika start tidak ditemukan', () => {
+test('In Progress linked diabaikan untuk start tetapi PR linked tetap menjadi end', () => {
   const url='https://github.com/GO-Bimbel/service/issues/1';
   const child='https://github.com/GO-Bimbel/service/issues/2';
   const result=decideTimes({ticketUrl:url,date:'2026-09-08',session:'16:00'}, {
     [url]:{url,linkedUrls:[child],events:[]},
-    [child]:{url:child,events:[{datetime:'2026-09-08T08:30:00Z',type:'pull_request',text:'opened pull request for review'}]}
+    [child]:{url:child,events:[
+      {datetime:'2026-09-08T07:00:00Z',type:'status',text:'moved this to In Progress'},
+      {datetime:'2026-09-08T08:30:00Z',type:'pull_request',text:'opened pull request for review'}
+    ]}
   });
   assert.equal(result.rule,'DSM_FALLBACK_MATCHED_GITHUB_END');
   assert.match(result.start,/13:00:00/);
   assert.equal(result.endSource,child);
+  assert.equal(result.startEvidence,'');
 });
 
-test('Todo adalah start valid dan Ready to Review adalah end', () => {
+test('Todo diabaikan sebagai start dan memakai fallback DSM', () => {
   const url='https://github.com/GO-Bimbel/gotim/issues/877';
   const result=decideTimes({ticketUrl:url,date:'2026-09-02',session:'16:00',status:'ready to review'}, {
     [url]:{url,linkedUrls:[],events:[
@@ -35,10 +39,11 @@ test('Todo adalah start valid dan Ready to Review adalah end', () => {
       {datetime:'2026-09-02T09:42:10Z',type:'status',text:'moved this from Todo to Ready to Review in BE-TASK'}
     ]}
   });
-  assert.equal(result.rule,'PARENT_START_MATCHED_END');
-  assert.equal(result.start,'2026-09-02T08:50:56Z');
+  assert.equal(result.rule,'DSM_FALLBACK_MATCHED_GITHUB_END');
+  assert.equal(result.start,'2026-09-02T13:00:00+07:00');
   assert.equal(result.end,'2026-09-02T09:42:10Z');
-  assert.equal(Number(result.hours.toFixed(2)),0.85);
+  assert.equal(Number(result.hours.toFixed(2)),3.7);
+  assert.equal(result.startEvidence,'');
 });
 
 test('jam efektif memotong istirahat satu jam', () => {
@@ -80,7 +85,7 @@ test('durasi beberapa detik tetap valid dan tidak dipanjangkan', () => {
   const url='https://github.com/GO-Bimbel/db-go/issues/2879';
   const result=decideTimes({ticketUrl:url,date:'2026-09-30',session:'11:00',status:'deployed'}, {
     [url]:{url,linkedUrls:[],events:[
-      {datetime:'2026-09-30T04:56:35Z',type:'status',text:'HadiGODev moved this to Todo in BE-TASK'},
+      {datetime:'2026-09-30T04:56:35Z',type:'status',text:'HadiGODev moved this to In Progress in BE-TASK'},
       {datetime:'2026-09-30T04:56:40Z',type:'pull_request',text:'allifgobimbel linked a pull request that will close this issue #2880'}
     ]}
   });
@@ -160,9 +165,10 @@ test('In Progress diprioritaskan atas Todo sebagai start', () => {
     ]}
   });
   assert.equal(result.start,'2026-09-22T03:00:00Z');
+  assert.match(result.startEvidence,/In Progress/i);
 });
 
-test('Todo setelah jam pulang ditolak dan memakai fallback DSM', () => {
+test('Todo tidak pernah dipakai sebagai start dan memakai fallback DSM', () => {
   const url='https://github.com/GO-Bimbel/db-sekolah/issues/1272';
   const result=decideTimes({ticketUrl:url,date:'2026-09-22',session:'16:00',sessions:['16:00'],status:'In Progress'}, {
     [url]:{url,linkedUrls:[],events:[
@@ -172,4 +178,24 @@ test('Todo setelah jam pulang ditolak dan memakai fallback DSM', () => {
   assert.equal(result.start,'2026-09-22T13:00:00+07:00');
   assert.equal(result.end,'2026-09-22T17:00:00+07:00');
   assert.equal(result.hours,4);
+});
+
+test('issue #1272 memakai In Progress 23 September, bukan Todo 22 September', () => {
+  const url='https://github.com/GO-Bimbel/db-sekolah/issues/1272';
+  const scans={
+    [url]:{url,linkedUrls:[],events:[
+      {datetime:'2026-09-22T10:04:37Z',type:'status',text:'HadiGODev moved this to Todo in BE-TASK'},
+      {datetime:'2026-09-23T03:42:49Z',type:'status',text:'dwikyananditya moved this from Todo to In Progress in BE-TASK'},
+      {datetime:'2026-09-23T04:32:33Z',type:'status',text:'dwikyananditya moved this from In Progress to Ready to Review in BE-TASK'}
+    ]}
+  };
+
+  const september22=decideTimes({ticketUrl:url,date:'2026-09-22',session:'16:00',sessions:['16:00'],status:'In Progress'},scans);
+  assert.equal(september22.start,'2026-09-22T13:00:00+07:00');
+  assert.equal(september22.startEvidence,'');
+
+  const september23=decideTimes({ticketUrl:url,date:'2026-09-23',session:'11:00',status:'Ready to Review'},scans);
+  assert.equal(september23.start,'2026-09-23T03:42:49Z');
+  assert.equal(september23.end,'2026-09-23T04:32:33Z');
+  assert.match(september23.startEvidence,/In Progress/i);
 });
