@@ -125,6 +125,31 @@ test('komentar biasa bukan marker start atau end', () => {
   assert.equal(result.end,null);
 });
 
+test('kata start atau end di dalam kalimat tidak dianggap marker', () => {
+  const url='https://github.com/GO-Bimbel/api/issues/101';
+  const result=decideTimes({ticketUrl:url,date:'2026-10-08',session:'11:00',status:'Ready to Review'}, {
+    [url]:{url,linkedUrls:[],events:[
+      {datetime:'2026-10-08T02:15:00Z',type:'comment',body:'hal ini akan di start',text:'allif commented on issue: hal ini akan di start'},
+      {datetime:'2026-10-08T07:45:00Z',type:'comment',body:'pekerjaan sudah end',text:'allif commented on issue: pekerjaan sudah end'}
+    ]}
+  });
+  assert.equal(result.start,null);
+  assert.equal(result.end,null);
+  assert.equal(result.rule,'NEEDS_REVIEW_NO_VALID_END');
+});
+
+test('marker menerima perbedaan kapital dan spasi tepi saja', () => {
+  const url='https://github.com/GO-Bimbel/api/issues/102';
+  const result=decideTimes({ticketUrl:url,date:'2026-10-08',session:'11:00',status:'Ready to Review'}, {
+    [url]:{url,linkedUrls:[],events:[
+      {datetime:'2026-10-08T02:15:00Z',type:'comment',body:'  START  ',text:'allif commented on issue: START'},
+      {datetime:'2026-10-08T07:45:00Z',type:'comment',body:' End ',text:'allif commented on issue: End'}
+    ]}
+  });
+  assert.equal(result.start,'2026-10-08T02:15:00Z');
+  assert.equal(result.end,'2026-10-08T07:45:00Z');
+});
+
 test('durasi beberapa detik tetap valid dan tidak dipanjangkan', () => {
   const url='https://github.com/GO-Bimbel/db-go/issues/2879';
   const result=decideTimes({ticketUrl:url,date:'2026-09-30',session:'11:00',status:'deployed'}, {

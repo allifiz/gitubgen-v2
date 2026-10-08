@@ -97,7 +97,7 @@ Contoh:
 Keputusan dan URL sumber ditulis pada sheet `Diagnostic`.
 
 - Event mention, assign, add-to-project, dan add-parent tidak dianggap sebagai bukti selesai.
-- Komentar hanya menjadi penanda waktu jika mengandung kata mandiri `start` atau `end` (case-insensitive). Komentar biasa tidak otomatis dihitung sebagai End.
+- Komentar hanya menjadi penanda waktu jika seluruh isinya persis `start` atau `end` setelah spasi tepi dibuang (case-insensitive). Kalimat seperti `hal ini akan di start` bukan marker.
 - PR linked/opened, review, commit, merge, dan issue closed adalah end valid. Durasi sangat pendek tetap dipertahankan jika timestamp GitHub memang demikian.
 - Untuk DSM berstatus `In Progress`, transisi tersebut adalah start. Jika ada aktivitas kerja sesudahnya pada hari yang sama, aktivitas terakhir menjadi titik observasi end.
 - Khusus tiket yang masih `In Progress` pada DSM 16:00, End Time adalah jam pulang: 17:00 pada Senin–Jumat atau 16:00 pada Sabtu. Minggu tidak dibuatkan jam pulang otomatis.
