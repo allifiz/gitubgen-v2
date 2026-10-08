@@ -49,8 +49,24 @@
       <button id="reset" class="ghost">Reset checkpoint</button>
     </section>
 
+    <section id="previewCard" class="card preview-card hidden">
+      <div class="preview-heading">
+        <h2>4. Preview KPI</h2>
+        <span id="previewCount" class="badge"></span>
+      </div>
+      <p class="hint">Periksa hasil scan sebelum mengunduh Excel. Geser tabel ke samping untuk melihat semua kolom.</p>
+      <div class="table-wrap">
+        <table id="previewTable">
+          <thead><tr>
+            <th>Assignee</th><th>Tanggal</th><th>Tiket</th><th>Status</th><th>Start</th><th>End</th><th>Jam</th><th>Rule</th><th>Review</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
     <section class="card note">
-      <h2>Aturan September</h2>
+      <h2>Aturan KPI</h2>
       <p><b>Prioritas:</b> status history GraphQL pada parent, lalu activity PR/commit untuk End Time.</p>
       <p>Jika status history hilang, gunakan komentar yang isinya persis <code>start</code> atau <code>end</code>. Jam DSM tidak dipakai sebagai fallback Start.</p>
     </section>

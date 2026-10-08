@@ -2,9 +2,11 @@
 
 Extension Chromium (Chrome dan Microsoft Edge) untuk merekonsiliasi file DSM, activity GitHub, parent/sub-issue, dan KPI Excel.
 
-## Fokus versi 0.7
+## Fokus versi 0.8
 
 - Seluruh status dan aktivitas issue/PR dibaca dari GitHub GraphQL menggunakan token read-only; tidak memerlukan scraping, webhook, atau GitHub App organisasi.
+- Memindai hingga lima issue/PR secara paralel agar proses GraphQL lebih cepat.
+- Menampilkan preview KPI berbentuk tabel setelah scan selesai sebelum workbook diunduh.
 - Membaca tiket berulang dari DSM per assignee, tanggal, dan sesi.
 - Bisa membuat workbook KPI dari nol hanya dengan upload DSM; file KPI lama bersifat opsional.
 - Dua sesi tiket yang sama pada tanggal yang sama digabung menjadi satu row KPI berdasarkan `Assignee + Ticket URL + Date`.

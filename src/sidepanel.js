@@ -32,6 +32,7 @@ async function loadDsm() {
   state.entries = parseDsm(await file.text(), { year: 2026, assignees: selected });
   if (!state.entries.length) showError('Tidak menemukan tiket DSM lengkap dengan tanggal, sesi, dan assignee.');
   else showInfo(`${state.entries.length} kemunculan tiket DSM ditemukan.`);
+  if (state.job?.status === 'completed') renderPreview();
   refreshExportState();
 }
 
@@ -84,8 +85,48 @@ function updateJob(job) {
     const review = decisions.filter(d => d.needsReview || !d.end).length;
     $('#summary').innerHTML = `✓ ${high} status pair<br>△ ${fallback} fallback komentar<br>⚠ ${review} perlu review<br>✕ ${job.errors?.length || 0} item gagal`;
     $('#summary').classList.remove('hidden');
+    renderPreview();
     refreshExportState();
   }
+}
+
+function previewRows(entries, scans) {
+  return prepareDailyEntries(entries).map(entry => {
+    const decision = decideTimes(entry, scans);
+    return {
+      assignee: displayAssignee(entry.assignee), date: displayDate(entry.date),
+      ticket: entry.ticketTitle || entry.ticketUrl, url: entry.ticketUrl,
+      status: displayStatus(entry.status),
+      start: decision.start ? formatDateTime(decision.start) : '',
+      end: decision.end ? formatDateTime(decision.end) : '',
+      hours: decision.hours == null ? '' : Number(decision.hours.toFixed(2)),
+      rule: decision.rule, review: decision.needsReview || !decision.start || !decision.end
+    };
+  });
+}
+
+function renderPreview() {
+  const card = $('#previewCard');
+  const body = $('#previewTable tbody');
+  body.replaceChildren();
+  const rows = previewRows(state.entries, state.job?.scans || {});
+  for (const row of rows) {
+    const tr = document.createElement('tr');
+    const values = [row.assignee,row.date,row.ticket,row.status,row.start,row.end,row.hours,row.rule,row.review?'YES':'NO'];
+    values.forEach((value, index) => {
+      const td = document.createElement('td');
+      td.textContent = value;
+      if (index === 2) {
+        td.className = 'ticket';
+        td.title = row.url;
+      }
+      if (index === 8) td.className = row.review ? 'review-yes' : 'review-no';
+      tr.appendChild(td);
+    });
+    body.appendChild(tr);
+  }
+  $('#previewCount').textContent = `${rows.length} row`;
+  card.classList.toggle('hidden', !rows.length);
 }
 
 async function exportWorkbook() {
@@ -352,6 +393,6 @@ async function restoreJob() { const job = await chrome.runtime.sendMessage({ typ
 async function resetJob() {
   await chrome.runtime.sendMessage({ type: 'CLEAR_JOB' });
   state.job = null;
-  $('#progressWrap').classList.add('hidden'); $('#summary').classList.add('hidden'); exportButton.classList.add('hidden');
+  $('#progressWrap').classList.add('hidden'); $('#summary').classList.add('hidden'); $('#previewCard').classList.add('hidden'); exportButton.classList.add('hidden');
   showInfo('Checkpoint dihapus.');
 }

@@ -1,6 +1,7 @@
 import { fetchActivity } from './lib/github-graphql.js';
 
 const STORAGE_KEY = 'gitubgenJob';
+const SCAN_CONCURRENCY = 5;
 let running = false;
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -45,23 +46,33 @@ async function startScan(inputItems, maxDepth, githubToken) {
     job.status = 'running';
 
     while (job.queue.length) {
-      const item = job.queue.shift();
-      if (job.scans[item.url]) continue;
-      try {
-        const scan = await scanUrl(item.url, githubToken);
+      const batch = job.queue.splice(0, SCAN_CONCURRENCY).filter(item => !job.scans[item.url]);
+      if (!batch.length) continue;
+      const batchUrls = new Set(batch.map(item => item.url));
+      const results = await Promise.all(batch.map(async item => {
+        try {
+          return { item, scan: await scanUrl(item.url, githubToken) };
+        } catch (error) {
+          return { item, error };
+        }
+      }));
+      for (const { item, scan, error } of results) {
+        if (error) {
+          job.errors.push({ url: item.url, error: error.message });
+          job.processed += 1;
+          continue;
+        }
         job.scans[item.url] = scan;
         if (item.depth < maxDepth && needsRelatedScan(scan, item.targets)) {
           for (const linkedUrl of scan.linkedUrls || []) {
-            if (!job.scans[linkedUrl] && !job.queue.some(q => q.url === linkedUrl)) {
+            if (!job.scans[linkedUrl] && !batchUrls.has(linkedUrl) && !job.queue.some(q => q.url === linkedUrl)) {
               job.queue.push({ url: linkedUrl, dates: item.dates, targets: item.targets, depth: item.depth + 1 });
               job.total += 1;
             }
           }
         }
-      } catch (error) {
-        job.errors.push({ url: item.url, error: error.message });
+        job.processed += 1;
       }
-      job.processed += 1;
       await saveAndNotify(job);
     }
     job.status = 'completed';
