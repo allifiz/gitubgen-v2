@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseDsm, fallbackStart, collapseDailyEntries } from '../src/lib/dsm-parser.js';
+import { parseDsm, collapseDailyEntries } from '../src/lib/dsm-parser.js';
 
 test('mem-parsing tanggal, sesi, assignee, dan URL tiket', () => {
   const input = `## 8 September 2026 - DSM 11:00\n### Hizkia\n- Kerjakan https://github.com/GO-Bimbel/service/issues/123`;
@@ -29,11 +29,6 @@ test('dua sesi tiket yang sama pada tanggal sama menjadi satu row harian', () =>
   assert.equal(daily[0].occurrences, 2);
   assert.equal(daily[0].status, 'Staging');
   assert.equal(daily[0].ticketTitle, '[SUPERAPPS-APPS] FIX: Resume Presensi');
-});
-
-test('fallback mengikuti sesi DSM', () => {
-  assert.match(fallbackStart('2026-09-08','11:00'), /09:00:00/);
-  assert.match(fallbackStart('2026-09-08','16:00'), /13:00:00/);
 });
 
 test('mengenali ejaan Dwiky dan URL Markdown yang di-escape', () => {

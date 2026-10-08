@@ -1,9 +1,11 @@
-import { fallbackStart } from './dsm-parser.js';
-
 const TZ = 'Asia/Jakarta';
 const START_STATUS = 'in progress';
 const IGNORED_END = /(assigned|unassigned|mentioned this|added this to|added a parent issue|added sub-issues?|converted this|changed the title|transferred this)/i;
-const WORK_ACTIVITY = /(linked a pull request|pull request|merged(?: commit| .* into)|commit(?:ted)?|submitted .* review|commented on|closed this|closed as completed)/i;
+const WORK_ACTIVITY = /(linked a pull request|pull request|merged(?: commit| .* into)|commit(?:ted)?|submitted .* review|closed this|closed as completed)/i;
+
+function hasCommentMarker(event, marker) {
+  return event?.type === 'comment' && new RegExp(`\\b${marker}\\b`, 'i').test(event.body || event.text || '');
+}
 
 function localParts(iso) {
   if (!iso) return null;
@@ -42,6 +44,7 @@ function eventPriority(event, targetStatus) {
   if (IGNORED_END.test(text)) return 0;
   if (targetStatus === 'deployed' && /(closed this|closed as completed)/.test(text)) return event.sourceKind === 'parent' ? 95 : 85;
   if (targetStatus === 'staging' && /merged(?: commit| .* into) staging/.test(text)) return event.sourceKind === 'parent' ? 88 : 85;
+  if (hasCommentMarker(event, 'end')) return event.sourceKind === 'parent' ? 89 : 79;
   if (WORK_ACTIVITY.test(text)) return event.sourceKind === 'parent' ? 80 : 70;
   return 0;
 }
@@ -53,11 +56,15 @@ function pickEnd(events, targetStatus) {
 }
 
 function pickStart(events, beforeIso) {
-  const candidates = events.filter(event =>
+  const statusCandidates = events.filter(event =>
     event.targetStatus === START_STATUS &&
     (!beforeIso || new Date(event.datetime) < new Date(beforeIso))
   );
-  return candidates.find(event => event.sourceKind === 'parent') || candidates[0] || null;
+  if (statusCandidates.length) return statusCandidates.find(event => event.sourceKind === 'parent') || statusCandidates[0];
+  return events.find(event =>
+    hasCommentMarker(event, 'start') &&
+    (!beforeIso || new Date(event.datetime) < new Date(beforeIso))
+  ) || null;
 }
 
 export function decideTimes(entry, scansByUrl) {
@@ -67,16 +74,18 @@ export function decideTimes(entry, scansByUrl) {
   const allEvents = [...parentEvents, ...linkedEvents].sort((a, b) => new Date(a.datetime) - new Date(b.datetime));
   const targetStatus = normalizeStatus(entry.status);
   let end = pickEnd(allEvents, targetStatus);
+  const markerEnd = [...allEvents].reverse().find(event => hasCommentMarker(event, 'end')) || null;
+  if (targetStatus.startsWith('in progress') && markerEnd) end = markerEnd;
   const sessions = entry.sessions || [entry.session].filter(Boolean);
   const isLateInProgress = targetStatus.startsWith('in progress') && sessions.some(session => /^16:/.test(session));
-  const workdayEnd = isLateInProgress ? workdayCloseIso(entry.date) : null;
+  const workdayEnd = isLateInProgress && !markerEnd ? workdayCloseIso(entry.date) : null;
   if (workdayEnd) {
     const startEvent = pickStart(parentEvents, workdayEnd);
     const start = entry.continuedFromPreviousDay
       ? startOfWorkdayIso(entry.date)
-      : startEvent?.datetime || fallbackStart(entry.date, entry.firstSession || sessions[0] || entry.session);
+      : startEvent?.datetime || null;
     return decision(start,workdayEnd,'IN_PROGRESS_UNTIL_WORKDAY_END',
-      entry.continuedFromPreviousDay ? 'CONTINUED 09:00' : startEvent?.sourceUrl || `DSM ${entry.firstSession || sessions[0] || entry.session}`,
+      entry.continuedFromPreviousDay ? 'CONTINUED 09:00' : startEvent?.sourceUrl || null,
       'WORKDAY_END','MEDIUM',{startEvent,endEvent:null});
   }
   if (!end) return { start:null,end:null,hours:null,rule:'NEEDS_REVIEW_NO_VALID_END',startSource:null,endSource:null,confidence:'LOW',needsReview:true };
@@ -94,10 +103,11 @@ export function decideTimes(entry, scansByUrl) {
   }
 
   const startEvent = pickStart(parentEvents, end.datetime);
-  const firstSession = entry.firstSession || entry.sessions?.[0] || entry.session;
-  const start = entry.continuedFromPreviousDay ? startOfWorkdayIso(entry.date) : startEvent?.datetime || fallbackStart(entry.date, firstSession);
-  const rule = startEvent ? (startEvent.sourceKind === 'parent' ? 'PARENT_START_MATCHED_END' : 'LINKED_START_MATCHED_END') : 'DSM_FALLBACK_MATCHED_GITHUB_END';
-  return decision(start,end.datetime,rule,startEvent?.sourceUrl || `DSM ${firstSession}`,end.sourceUrl,startEvent && end.sourceKind === 'parent' ? 'HIGH' : startEvent ? 'MEDIUM' : 'LOW',{startEvent,endEvent:end});
+  const start = entry.continuedFromPreviousDay ? startOfWorkdayIso(entry.date) : startEvent?.datetime || null;
+  const rule = startEvent
+    ? (hasCommentMarker(startEvent, 'start') ? 'COMMENT_START_MATCHED_END' : 'PARENT_START_MATCHED_END')
+    : 'NEEDS_REVIEW_NO_VALID_START';
+  return decision(start,end.datetime,rule,startEvent?.sourceUrl || null,end.sourceUrl,startEvent && end.sourceKind === 'parent' ? 'HIGH' : startEvent ? 'MEDIUM' : 'LOW',{startEvent,endEvent:end});
 }
 
 function startOfWorkdayIso(date) {
@@ -133,7 +143,7 @@ function decision(start,end,rule,startSource,endSource,confidence,evidence={}) {
   const hours=effectiveWorkHours(start,end);
   return {
     start,end,hours,rule,startSource,endSource,confidence,
-    startSourceKind:evidence.startEvent?.sourceKind || (String(startSource || '').startsWith('DSM ') ? 'dsm-fallback' : ''),
+    startSourceKind:evidence.startEvent?.sourceKind || '',
     endSourceKind:evidence.endEvent?.sourceKind || '',
     startEvidence:evidence.startEvent?.text||'',endEvidence:evidence.endEvent?.text||'',
     needsReview:hours<=0

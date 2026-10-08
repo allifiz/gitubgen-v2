@@ -75,14 +75,14 @@ function updateJob(job) {
   $('#progressWrap').classList.remove('hidden');
   const percentage = job.total ? Math.round((job.processed / job.total) * 100) : 0;
   $('#progressBar').style.width = `${percentage}%`;
-  $('#progressText').textContent = `${job.processed || 0}/${job.total || 0} halaman · ${job.status}`;
+  $('#progressText').textContent = `${job.processed || 0}/${job.total || 0} item · ${job.status}`;
   if (job.status === 'completed') {
     setBusy(false);
     const decisions = collapseDailyEntries(state.entries).map(entry => decideTimes(entry, job.scans));
     const high = decisions.filter(d => d.confidence === 'HIGH').length;
-    const fallback = decisions.filter(d => d.rule === 'DSM_FALLBACK_GITHUB_END').length;
+    const fallback = decisions.filter(d => d.rule === 'COMMENT_START_MATCHED_END').length;
     const review = decisions.filter(d => d.needsReview || !d.end).length;
-    $('#summary').innerHTML = `✓ ${high} status pair<br>△ ${fallback} fallback DSM<br>⚠ ${review} perlu review<br>✕ ${job.errors?.length || 0} halaman gagal`;
+    $('#summary').innerHTML = `✓ ${high} status pair<br>△ ${fallback} fallback komentar<br>⚠ ${review} perlu review<br>✕ ${job.errors?.length || 0} item gagal`;
     $('#summary').classList.remove('hidden');
     refreshExportState();
   }

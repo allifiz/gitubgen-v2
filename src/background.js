@@ -106,7 +106,10 @@ function hasValidEnd(events, status = '') {
   if (events.some(event => new RegExp(`to\\s+${normalized.replace(/ /g, '\\s+')}\\b`, 'i').test(event.text) && /(status|moved|changed)/i.test(event.text))) return true;
   if (normalized === 'deployed' && events.some(event => /closed this|closed as completed/i.test(event.text))) return true;
   if (normalized === 'staging' && events.some(event => /merged(?: commit| .* into) staging/i.test(event.text))) return true;
-  return events.some(event => /(linked a pull request|merged|commit(?:ted)?|closed this)/i.test(event.text));
+  return events.some(event =>
+    /(linked a pull request|merged|commit(?:ted)?|submitted .* review|closed this)/i.test(event.text) ||
+    (event.type === 'comment' && /\bend\b/i.test(event.body || event.text || ''))
+  );
 }
 
 function jakartaDate(iso) {

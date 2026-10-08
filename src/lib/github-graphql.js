@@ -5,7 +5,7 @@ query Activity($owner: String!, $repo: String!, $number: Int!) {
   repository(owner: $owner, name: $repo) {
     issue(number: $number) {
       title url createdAt closedAt
-      comments(first: 100) { nodes { createdAt author { login } } }
+      comments(first: 100) { nodes { createdAt bodyText author { login } } }
       trackedIssues(first: 100) { nodes { url } }
       projectItems(first: 20) {
         nodes { fieldValues(first: 100) { nodes {
@@ -28,7 +28,7 @@ query Activity($owner: String!, $repo: String!, $number: Int!) {
     }
     pullRequest(number: $number) {
       title url createdAt closedAt mergedAt author { login } mergedBy { login }
-      comments(first: 100) { nodes { createdAt author { login } } }
+      comments(first: 100) { nodes { createdAt bodyText author { login } } }
       reviews(first: 100) { nodes { submittedAt author { login } state } }
       commits(first: 100) {
         nodes { commit { committedDate messageHeadline url author { user { login } } } }
@@ -101,8 +101,9 @@ function normalizeTimeline(nodes = [], url) {
 
 function normalizeComments(nodes = [], url, subject = 'issue') {
   return nodes.filter(node => node?.createdAt).map(node => ({
-    datetime: node.createdAt, type: 'comment', text: `${actorLogin(node.author)} commented on ${subject}`,
-    source: 'graphql', actor: actorLogin(node.author), url
+    datetime: node.createdAt, type: 'comment',
+    text: `${actorLogin(node.author)} commented on ${subject}: ${String(node.bodyText || '').trim()}`,
+    body: String(node.bodyText || '').trim(), source: 'graphql', actor: actorLogin(node.author), url
   }));
 }
 

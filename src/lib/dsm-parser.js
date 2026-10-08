@@ -134,8 +134,3 @@ export function collapseDailyEntries(entries) {
     };
   }).sort((a, b) => `${a.date}|${a.assignee}|${a.ticketUrl}`.localeCompare(`${b.date}|${b.assignee}|${b.ticketUrl}`));
 }
-
-export function fallbackStart(date, session) {
-  const hour = session?.startsWith('11') ? '09:00:00' : '13:00:00';
-  return `${date}T${hour}+07:00`;
-}

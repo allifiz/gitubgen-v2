@@ -25,13 +25,13 @@ test('In Progress linked diabaikan untuk start tetapi PR linked tetap menjadi en
       {datetime:'2026-09-08T08:30:00Z',type:'pull_request',text:'opened pull request for review'}
     ]}
   });
-  assert.equal(result.rule,'DSM_FALLBACK_MATCHED_GITHUB_END');
-  assert.match(result.start,/13:00:00/);
+  assert.equal(result.rule,'NEEDS_REVIEW_NO_VALID_START');
+  assert.equal(result.start,null);
   assert.equal(result.endSource,child);
   assert.equal(result.startEvidence,'');
 });
 
-test('Todo diabaikan sebagai start dan memakai fallback DSM', () => {
+test('Todo diabaikan dan tidak ada lagi fallback Start dari DSM', () => {
   const url='https://github.com/GO-Bimbel/gotim/issues/877';
   const result=decideTimes({ticketUrl:url,date:'2026-09-02',session:'16:00',status:'ready to review'}, {
     [url]:{url,linkedUrls:[],events:[
@@ -39,10 +39,10 @@ test('Todo diabaikan sebagai start dan memakai fallback DSM', () => {
       {datetime:'2026-09-02T09:42:10Z',type:'status',text:'moved this from Todo to Ready to Review in BE-TASK'}
     ]}
   });
-  assert.equal(result.rule,'DSM_FALLBACK_MATCHED_GITHUB_END');
-  assert.equal(result.start,'2026-09-02T13:00:00+07:00');
+  assert.equal(result.rule,'NEEDS_REVIEW_NO_VALID_START');
+  assert.equal(result.start,null);
   assert.equal(result.end,'2026-09-02T09:42:10Z');
-  assert.equal(Number(result.hours.toFixed(2)),3.7);
+  assert.equal(result.hours,0);
   assert.equal(result.startEvidence,'');
 });
 
@@ -50,10 +50,11 @@ test('jam efektif memotong istirahat satu jam', () => {
   const url='https://github.com/GO-Bimbel/gotim/issues/877';
   const result=decideTimes({ticketUrl:url,date:'2026-09-03',session:'11:00',status:'staging'}, {
     [url]:{url,linkedUrls:[],events:[
+      {datetime:'2026-09-03T02:00:00Z',type:'comment',body:'start',text:'allif commented on issue: start'},
       {datetime:'2026-09-03T09:03:05Z',type:'status',text:'moved this from Ready to Review to Staging in BE-TASK'}
     ]}
   });
-  assert.match(result.start,/09:00:00/);
+  assert.equal(result.start,'2026-09-03T02:00:00Z');
   assert.equal(Number(result.hours.toFixed(2)),6.05);
 });
 
@@ -73,10 +74,11 @@ test('PR linked pada parent adalah end valid bila status target tidak tercatat',
   const url='https://github.com/GO-Bimbel/db-go/issues/2799';
   const result=decideTimes({ticketUrl:url,date:'2026-09-01',session:'11:00',status:'staging'}, {
     [url]:{url,linkedUrls:[],events:[
+      {datetime:'2026-09-01T02:00:00Z',type:'comment',body:'start',text:'allif commented on issue: start'},
       {datetime:'2026-09-01T02:27:04Z',type:'pull_request',text:'allifgobimbel linked a pull request that will close this issue #2801'}
     ]}
   });
-  assert.match(result.start,/09:00:00/);
+  assert.equal(result.start,'2026-09-01T02:00:00Z');
   assert.equal(result.end,'2026-09-01T02:27:04Z');
   assert.equal(result.endSourceKind,'parent');
 });
@@ -93,6 +95,34 @@ test('comment dan review GraphQL merupakan bukti End Time', () => {
   });
   assert.equal(result.end,'2026-09-08T06:00:00Z');
   assert.equal(result.endSource,pr);
+});
+
+test('komentar start dan end menjadi fallback waktu saat status history hilang', () => {
+  const url='https://github.com/GO-Bimbel/api/issues/99';
+  const result=decideTimes({ticketUrl:url,date:'2026-10-08',session:'11:00',status:'Ready to Review'}, {
+    [url]:{url,linkedUrls:[],events:[
+      {datetime:'2026-10-08T02:15:00Z',type:'comment',body:'START',text:'allif commented on issue: START'},
+      {datetime:'2026-10-08T07:45:00Z',type:'comment',body:'end',text:'allif commented on issue: end'}
+    ]}
+  });
+  assert.equal(result.rule,'COMMENT_START_MATCHED_END');
+  assert.equal(result.start,'2026-10-08T02:15:00Z');
+  assert.equal(result.end,'2026-10-08T07:45:00Z');
+  assert.match(result.endEvidence,/end/i);
+  assert.equal(result.needsReview,false);
+});
+
+test('komentar biasa bukan marker start atau end', () => {
+  const url='https://github.com/GO-Bimbel/api/issues/100';
+  const result=decideTimes({ticketUrl:url,date:'2026-10-08',session:'11:00',status:'Ready to Review'}, {
+    [url]:{url,linkedUrls:[],events:[
+      {datetime:'2026-10-08T02:15:00Z',type:'comment',body:'mulai dikerjakan',text:'allif commented on issue: mulai dikerjakan'},
+      {datetime:'2026-10-08T07:45:00Z',type:'comment',body:'sudah selesai',text:'allif commented on issue: sudah selesai'}
+    ]}
+  });
+  assert.equal(result.rule,'NEEDS_REVIEW_NO_VALID_END');
+  assert.equal(result.start,null);
+  assert.equal(result.end,null);
 });
 
 test('durasi beberapa detik tetap valid dan tidak dipanjangkan', () => {
@@ -132,6 +162,19 @@ test('In Progress pada DSM 16 berakhir pada jam pulang kerja', () => {
   assert.match(result.end,/2026-09-08T17:00:00\+07:00/);
 });
 
+test('komentar end mengalahkan jam pulang untuk In Progress DSM 16', () => {
+  const url='https://github.com/GO-Bimbel/service/issues/91';
+  const result=decideTimes({ticketUrl:url,date:'2026-09-08',session:'16:00',sessions:['16:00'],status:'In Progress'}, {
+    [url]:{url,linkedUrls:[],events:[
+      {datetime:'2026-09-08T07:00:00Z',type:'comment',body:'start',text:'allif commented on issue: start'},
+      {datetime:'2026-09-08T09:15:00Z',type:'comment',body:'end',text:'allif commented on issue: end'}
+    ]}
+  });
+  assert.equal(result.start,'2026-09-08T07:00:00Z');
+  assert.equal(result.end,'2026-09-08T09:15:00Z');
+  assert.equal(result.rule,'COMMENT_START_MATCHED_END');
+});
+
 test('lanjutan tiket hari berikutnya dimulai tepat pukul 09.00', () => {
   const url='https://github.com/GO-Bimbel/service/issues/9';
   const result=decideTimes({ticketUrl:url,date:'2026-09-09',session:'16:00',sessions:['16:00'],status:'In Progress',continuedFromPreviousDay:true}, {
@@ -144,7 +187,7 @@ test('lanjutan tiket hari berikutnya dimulai tepat pukul 09.00', () => {
 test('In Progress pada DSM 16 hari Sabtu berakhir pukul 16.00', () => {
   const url='https://github.com/GO-Bimbel/service/issues/10';
   const result=decideTimes({ticketUrl:url,date:'2026-09-12',session:'16:00',sessions:['16:00'],status:'In Progress'}, {
-    [url]: {url,events:[],linkedUrls:[]}
+    [url]: {url,events:[{datetime:'2026-09-12T06:00:00Z',type:'comment',body:'start',text:'allif commented on issue: start'}],linkedUrls:[]}
   });
   assert.equal(result.end,'2026-09-12T16:00:00+07:00');
   assert.equal(result.hours,3);
@@ -182,16 +225,17 @@ test('In Progress diprioritaskan atas Todo sebagai start', () => {
   assert.match(result.startEvidence,/In Progress/i);
 });
 
-test('Todo tidak pernah dipakai sebagai start dan memakai fallback DSM', () => {
+test('Todo tidak pernah dipakai sebagai start dan tanpa fallback DSM', () => {
   const url='https://github.com/GO-Bimbel/db-sekolah/issues/1272';
   const result=decideTimes({ticketUrl:url,date:'2026-09-22',session:'16:00',sessions:['16:00'],status:'In Progress'}, {
     [url]:{url,linkedUrls:[],events:[
       {datetime:'2026-09-22T10:04:37Z',type:'status',text:'moved this to Todo'}
     ]}
   });
-  assert.equal(result.start,'2026-09-22T13:00:00+07:00');
+  assert.equal(result.start,null);
   assert.equal(result.end,'2026-09-22T17:00:00+07:00');
-  assert.equal(result.hours,4);
+  assert.equal(result.hours,0);
+  assert.equal(result.needsReview,true);
 });
 
 test('issue #1272 memakai In Progress 23 September, bukan Todo 22 September', () => {
@@ -205,7 +249,7 @@ test('issue #1272 memakai In Progress 23 September, bukan Todo 22 September', ()
   };
 
   const september22=decideTimes({ticketUrl:url,date:'2026-09-22',session:'16:00',sessions:['16:00'],status:'In Progress'},scans);
-  assert.equal(september22.start,'2026-09-22T13:00:00+07:00');
+  assert.equal(september22.start,null);
   assert.equal(september22.startEvidence,'');
 
   const september23=decideTimes({ticketUrl:url,date:'2026-09-23',session:'11:00',status:'Ready to Review'},scans);
