@@ -4,7 +4,7 @@ const IGNORED_END = /(assigned|unassigned|mentioned this|added this to|added a p
 const WORK_ACTIVITY = /(linked a pull request|pull request|merged(?: commit| .* into)|commit(?:ted)?|submitted .* review|closed this|closed as completed)/i;
 
 function hasCommentMarker(event, marker) {
-  return event?.type === 'comment' && String(event.body || '').trim().toLowerCase() === marker;
+  return event?.type === 'comment' && String(event.body || '').trim().toLowerCase() === `/${marker}`;
 }
 
 function localParts(iso) {

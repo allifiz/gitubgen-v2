@@ -50,7 +50,7 @@ test('jam efektif memotong istirahat satu jam', () => {
   const url='https://github.com/GO-Bimbel/gotim/issues/877';
   const result=decideTimes({ticketUrl:url,date:'2026-09-03',session:'11:00',status:'staging'}, {
     [url]:{url,linkedUrls:[],events:[
-      {datetime:'2026-09-03T02:00:00Z',type:'comment',body:'start',text:'allif commented on issue: start'},
+      {datetime:'2026-09-03T02:00:00Z',type:'comment',body:'/start',text:'allif commented on issue: /start'},
       {datetime:'2026-09-03T09:03:05Z',type:'status',text:'moved this from Ready to Review to Staging in BE-TASK'}
     ]}
   });
@@ -74,7 +74,7 @@ test('PR linked pada parent adalah end valid bila status target tidak tercatat',
   const url='https://github.com/GO-Bimbel/db-go/issues/2799';
   const result=decideTimes({ticketUrl:url,date:'2026-09-01',session:'11:00',status:'staging'}, {
     [url]:{url,linkedUrls:[],events:[
-      {datetime:'2026-09-01T02:00:00Z',type:'comment',body:'start',text:'allif commented on issue: start'},
+      {datetime:'2026-09-01T02:00:00Z',type:'comment',body:'/start',text:'allif commented on issue: /start'},
       {datetime:'2026-09-01T02:27:04Z',type:'pull_request',text:'allifgobimbel linked a pull request that will close this issue #2801'}
     ]}
   });
@@ -101,8 +101,8 @@ test('komentar start dan end menjadi fallback waktu saat status history hilang',
   const url='https://github.com/GO-Bimbel/api/issues/99';
   const result=decideTimes({ticketUrl:url,date:'2026-10-08',session:'11:00',status:'Ready to Review'}, {
     [url]:{url,linkedUrls:[],events:[
-      {datetime:'2026-10-08T02:15:00Z',type:'comment',body:'START',text:'allif commented on issue: START'},
-      {datetime:'2026-10-08T07:45:00Z',type:'comment',body:'end',text:'allif commented on issue: end'}
+      {datetime:'2026-10-08T02:15:00Z',type:'comment',body:'/START',text:'allif commented on issue: /START'},
+      {datetime:'2026-10-08T07:45:00Z',type:'comment',body:'/end',text:'allif commented on issue: /end'}
     ]}
   });
   assert.equal(result.rule,'COMMENT_START_MATCHED_END');
@@ -125,12 +125,25 @@ test('komentar biasa bukan marker start atau end', () => {
   assert.equal(result.end,null);
 });
 
-test('kata start atau end di dalam kalimat tidak dianggap marker', () => {
+test('komentar start dan end tanpa slash tidak lagi dianggap marker', () => {
+  const url='https://github.com/GO-Bimbel/api/issues/1001';
+  const result=decideTimes({ticketUrl:url,date:'2026-10-08',session:'11:00',status:'Ready to Review'}, {
+    [url]:{url,linkedUrls:[],events:[
+      {datetime:'2026-10-08T02:15:00Z',type:'comment',body:'start',text:'allif commented on issue: start'},
+      {datetime:'2026-10-08T07:45:00Z',type:'comment',body:'end',text:'allif commented on issue: end'}
+    ]}
+  });
+  assert.equal(result.start,null);
+  assert.equal(result.end,null);
+  assert.equal(result.rule,'NEEDS_REVIEW_NO_VALID_END');
+});
+
+test('kata /start atau /end di dalam kalimat tidak dianggap marker', () => {
   const url='https://github.com/GO-Bimbel/api/issues/101';
   const result=decideTimes({ticketUrl:url,date:'2026-10-08',session:'11:00',status:'Ready to Review'}, {
     [url]:{url,linkedUrls:[],events:[
-      {datetime:'2026-10-08T02:15:00Z',type:'comment',body:'hal ini akan di start',text:'allif commented on issue: hal ini akan di start'},
-      {datetime:'2026-10-08T07:45:00Z',type:'comment',body:'pekerjaan sudah end',text:'allif commented on issue: pekerjaan sudah end'}
+      {datetime:'2026-10-08T02:15:00Z',type:'comment',body:'hal ini akan di /start',text:'allif commented on issue: hal ini akan di /start'},
+      {datetime:'2026-10-08T07:45:00Z',type:'comment',body:'pekerjaan sudah /end',text:'allif commented on issue: pekerjaan sudah /end'}
     ]}
   });
   assert.equal(result.start,null);
@@ -142,8 +155,8 @@ test('marker menerima perbedaan kapital dan spasi tepi saja', () => {
   const url='https://github.com/GO-Bimbel/api/issues/102';
   const result=decideTimes({ticketUrl:url,date:'2026-10-08',session:'11:00',status:'Ready to Review'}, {
     [url]:{url,linkedUrls:[],events:[
-      {datetime:'2026-10-08T02:15:00Z',type:'comment',body:'  START  ',text:'allif commented on issue: START'},
-      {datetime:'2026-10-08T07:45:00Z',type:'comment',body:' End ',text:'allif commented on issue: End'}
+      {datetime:'2026-10-08T02:15:00Z',type:'comment',body:'  /START  ',text:'allif commented on issue: /START'},
+      {datetime:'2026-10-08T07:45:00Z',type:'comment',body:' /End ',text:'allif commented on issue: /End'}
     ]}
   });
   assert.equal(result.start,'2026-10-08T02:15:00Z');
@@ -191,8 +204,8 @@ test('komentar end mengalahkan jam pulang untuk In Progress DSM 16', () => {
   const url='https://github.com/GO-Bimbel/service/issues/91';
   const result=decideTimes({ticketUrl:url,date:'2026-09-08',session:'16:00',sessions:['16:00'],status:'In Progress'}, {
     [url]:{url,linkedUrls:[],events:[
-      {datetime:'2026-09-08T07:00:00Z',type:'comment',body:'start',text:'allif commented on issue: start'},
-      {datetime:'2026-09-08T09:15:00Z',type:'comment',body:'end',text:'allif commented on issue: end'}
+      {datetime:'2026-09-08T07:00:00Z',type:'comment',body:'/start',text:'allif commented on issue: /start'},
+      {datetime:'2026-09-08T09:15:00Z',type:'comment',body:'/end',text:'allif commented on issue: /end'}
     ]}
   });
   assert.equal(result.start,'2026-09-08T07:00:00Z');
@@ -212,7 +225,7 @@ test('lanjutan tiket hari berikutnya dimulai tepat pukul 09.00', () => {
 test('In Progress pada DSM 16 hari Sabtu berakhir pukul 16.00', () => {
   const url='https://github.com/GO-Bimbel/service/issues/10';
   const result=decideTimes({ticketUrl:url,date:'2026-09-12',session:'16:00',sessions:['16:00'],status:'In Progress'}, {
-    [url]: {url,events:[{datetime:'2026-09-12T06:00:00Z',type:'comment',body:'start',text:'allif commented on issue: start'}],linkedUrls:[]}
+    [url]: {url,events:[{datetime:'2026-09-12T06:00:00Z',type:'comment',body:'/start',text:'allif commented on issue: /start'}],linkedUrls:[]}
   });
   assert.equal(result.end,'2026-09-12T16:00:00+07:00');
   assert.equal(result.hours,3);

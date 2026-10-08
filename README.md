@@ -13,7 +13,7 @@ Extension Chromium (Chrome dan Microsoft Edge) untuk merekonsiliasi file DSM, ac
 - Status dan judul diambil dari kemunculan DSM terakhir pada hari tersebut.
 - Mengambil status, sub-issue, linked PR, comment, review, commit, merge/close, dan Target Date melalui GraphQL.
 - Menyimpan checkpoint scan di `chrome.storage.local`.
-- Start mengutamakan transisi `In Progress` pada parent issue di tanggal DSM yang sama. Jika event tersebut hilang, komentar parent yang mengandung kata `start` menjadi fallback.
+- Start mengutamakan transisi `In Progress` pada parent issue di tanggal DSM yang sama. Jika event tersebut hilang, komentar parent yang isinya persis `/start` menjadi fallback.
 - End mengutamakan status DSM; jika tidak tercatat, gunakan aktivitas kerja GitHub yang valid pada parent, sub-issue, atau PR.
 - Parent/link/sub-issue diperiksa berdasarkan status DSM per tanggal, bukan hanya pasangan `In Progress` → `Ready to Review`.
 - Jam sesi DSM tidak lagi digunakan sebagai fallback Start.
@@ -92,19 +92,19 @@ Contoh:
 | Urutan | Start | End | Confidence |
 |---|---|---|---|
 | 1 | Parent `In Progress` | Status parent yang sama dengan status DSM | High |
-| 2 | Komentar `start` pada parent | Komentar `end` pada parent/sub-issue/PR | Medium |
-| 3 | Parent `In Progress` atau komentar `start` | PR/review/commit valid pada parent/sub-issue | Medium |
+| 2 | Komentar `/start` pada parent | Komentar `/end` pada parent/sub-issue/PR | Medium |
+| 3 | Parent `In Progress` atau komentar `/start` | PR/review/commit valid pada parent/sub-issue | Medium |
 | 4 | Tidak ditemukan | Tidak ditemukan | Needs Review |
 
 Keputusan dan URL sumber ditulis pada sheet `Diagnostic`.
 
 - Event mention, assign, add-to-project, dan add-parent tidak dianggap sebagai bukti selesai.
-- Komentar hanya menjadi penanda waktu jika seluruh isinya persis `start` atau `end` setelah spasi tepi dibuang (case-insensitive). Kalimat seperti `hal ini akan di start` bukan marker.
+- Komentar hanya menjadi penanda waktu jika seluruh isinya persis `/start` atau `/end` setelah spasi tepi dibuang (case-insensitive). Kalimat seperti `hal ini akan di /start` bukan marker.
 - PR linked/opened, review, commit, merge, dan issue closed adalah end valid. Durasi sangat pendek tetap dipertahankan jika timestamp GitHub memang demikian.
 - Untuk DSM berstatus `In Progress`, transisi tersebut adalah start. Jika ada aktivitas kerja sesudahnya pada hari yang sama, aktivitas terakhir menjadi titik observasi end.
 - Khusus tiket yang masih `In Progress` pada DSM 16:00, End Time adalah jam pulang: 17:00 pada Senin–Jumat atau 16:00 pada Sabtu. Minggu tidak dibuatkan jam pulang otomatis.
 - Jika tiket masih `In Progress` pada sesi terakhir dan muncul lagi pada hari kerja berikutnya, Start Time hari lanjutan dibuat 09:00. Hari kerja adalah Senin–Sabtu, sehingga kelanjutan dari Sabtu diteruskan pada Senin.
-- Jika transisi `In Progress` dan komentar `start` sama-sama tidak ditemukan, Start dikosongkan dan row ditandai `Needs Review`.
+- Jika transisi `In Progress` dan komentar `/start` sama-sama tidak ditemukan, Start dikosongkan dan row ditandai `Needs Review`.
 - End Time tidak pernah dibuat dari waktu DSM.
 - Durasi memakai jam kerja efektif 09:00–17:00 (Sabtu sampai 16:00), dipotong istirahat 12:00–13:00 atau Jumat 11:30–13:30.
 - Export baru berisi sheet `KPI`, `Diagnostic`, dan `Rekap Tiket Unik`. Pada rekap unik, `Date` diambil dari Start Time pertama yang benar-benar diputuskan untuk KPI, sedangkan `End Date` adalah tanggal issue ditutup/deployed.

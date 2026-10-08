@@ -119,7 +119,7 @@ function hasValidEnd(events, status = '') {
   if (normalized === 'staging' && events.some(event => /merged(?: commit| .* into) staging/i.test(event.text))) return true;
   return events.some(event =>
     /(linked a pull request|merged|commit(?:ted)?|submitted .* review|closed this)/i.test(event.text) ||
-    (event.type === 'comment' && String(event.body || '').trim().toLowerCase() === 'end')
+    (event.type === 'comment' && String(event.body || '').trim().toLowerCase() === '/end')
   );
 }
 
