@@ -3,7 +3,7 @@ import { fallbackStart } from './dsm-parser.js';
 const TZ = 'Asia/Jakarta';
 const START_STATUS = 'in progress';
 const IGNORED_END = /(assigned|unassigned|mentioned this|added this to|added a parent issue|added sub-issues?|converted this|changed the title|transferred this)/i;
-const WORK_ACTIVITY = /(linked a pull request|pull request|merged(?: commit| .* into)|commit(?:ted)?|closed this|closed as completed)/i;
+const WORK_ACTIVITY = /(linked a pull request|pull request|merged(?: commit| .* into)|commit(?:ted)?|submitted .* review|commented on|closed this|closed as completed)/i;
 
 function localParts(iso) {
   if (!iso) return null;

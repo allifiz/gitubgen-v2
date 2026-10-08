@@ -1,10 +1,10 @@
 {
   "manifest_version": 3,
   "name": "GitubGen V2 - KPI Extractor",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Rekonsiliasi DSM, timeline GitHub, parent/sub-issue, dan KPI Excel.",
-  "permissions": ["storage", "tabs", "downloads", "sidePanel"],
-  "host_permissions": ["https://github.com/*", "https://api.github.com/*"],
+  "permissions": ["storage", "downloads", "sidePanel"],
+  "host_permissions": ["https://api.github.com/*"],
   "background": {
     "service_worker": "background.js",
     "type": "module"
@@ -14,12 +14,5 @@
   },
   "side_panel": {
     "default_path": "sidepanel.html"
-  },
-  "content_scripts": [
-    {
-      "matches": ["https://github.com/*/*/issues/*", "https://github.com/*/*/pull/*"],
-      "js": ["content.js"],
-      "run_at": "document_idle"
-    }
-  ]
+  }
 }

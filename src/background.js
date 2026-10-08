@@ -1,4 +1,4 @@
-import { fetchStatusHistory } from './lib/github-graphql.js';
+import { fetchActivity } from './lib/github-graphql.js';
 
 const STORAGE_KEY = 'gitubgenJob';
 let running = false;
@@ -116,58 +116,10 @@ function jakartaDate(iso) {
 }
 
 async function scanUrl(url, githubToken) {
-  const statusEvents = await fetchStatusHistory(url, githubToken);
-  const tab = await chrome.tabs.create({ url, active: false });
-  try {
-    await waitForTab(tab.id);
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-      try {
-        const response = await chrome.tabs.sendMessage(tab.id, { type: 'COLLECT_GITHUB_TIMELINE' });
-        if (response?.ok) {
-          const pageEvents = (response.events || []).filter(event => !isScrapedStatusTransition(event));
-          return {
-            ...response,
-            events: [...pageEvents, ...statusEvents].sort((a, b) => new Date(a.datetime) - new Date(b.datetime)),
-            statusHistorySource: 'graphql',
-            statusEventCount: statusEvents.length
-          };
-        }
-        throw new Error(response?.error || 'Timeline tidak terbaca.');
-      } catch (error) {
-        if (attempt === 2) throw error;
-        await delay(1000);
-      }
-    }
-  } finally {
-    await chrome.tabs.remove(tab.id).catch(() => {});
-  }
-  throw new Error('Scan gagal.');
-}
-
-function isScrapedStatusTransition(event) {
-  return event?.type === 'status' && /(moved this|changed (?:the )?status)/i.test(event.text || '');
-}
-
-function waitForTab(tabId) {
-  return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      chrome.tabs.onUpdated.removeListener(listener);
-      reject(new Error('Timeout membuka halaman GitHub.'));
-    }, 30_000);
-    const listener = (id, info) => {
-      if (id === tabId && info.status === 'complete') {
-        clearTimeout(timeout);
-        chrome.tabs.onUpdated.removeListener(listener);
-        resolve();
-      }
-    };
-    chrome.tabs.onUpdated.addListener(listener);
-  });
+  return fetchActivity(url, githubToken);
 }
 
 async function saveAndNotify(job) {
   await chrome.storage.local.set({ [STORAGE_KEY]: job });
   chrome.runtime.sendMessage({ type: 'JOB_PROGRESS', job }).catch(() => {});
 }
-
-const delay = ms => new Promise(resolve => setTimeout(resolve, ms));

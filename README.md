@@ -2,14 +2,14 @@
 
 Extension Chromium (Chrome dan Microsoft Edge) untuk merekonsiliasi file DSM, activity GitHub, parent/sub-issue, dan KPI Excel.
 
-## Fokus versi 0.6
+## Fokus versi 0.7
 
-- Status history dibaca dari GitHub GraphQL menggunakan token read-only; tidak memerlukan webhook atau GitHub App organisasi.
+- Seluruh status dan aktivitas issue/PR dibaca dari GitHub GraphQL menggunakan token read-only; tidak memerlukan scraping, webhook, atau GitHub App organisasi.
 - Membaca tiket berulang dari DSM per assignee, tanggal, dan sesi.
 - Bisa membuat workbook KPI dari nol hanya dengan upload DSM; file KPI lama bersifat opsional.
 - Dua sesi tiket yang sama pada tanggal yang sama digabung menjadi satu row KPI berdasarkan `Assignee + Ticket URL + Date`.
 - Status dan judul diambil dari kemunculan DSM terakhir pada hari tersebut.
-- Memindai activity non-status issue/PR melalui tab background dan mengambil status history dari GraphQL.
+- Mengambil status, sub-issue, linked PR, comment, review, commit, merge/close, dan Target Date melalui GraphQL.
 - Menyimpan checkpoint scan di `chrome.storage.local`.
 - Start hanya memakai transisi `In Progress` pada parent issue di tanggal DSM yang sama. `Todo` dan status sub-issue tidak dianggap sebagai awal pengerjaan; jika `In Progress` parent tidak ditemukan, gunakan fallback DSM.
 - End mengutamakan status DSM; jika tidak tercatat, gunakan aktivitas kerja GitHub yang valid pada parent, sub-issue, atau PR.
@@ -39,8 +39,7 @@ Hasil extension berada di folder `dist/`.
 2. Aktifkan **Developer mode**.
 3. Klik **Load unpacked**.
 4. Pilih folder `dist/`.
-5. Login GitHub menggunakan akun yang dapat membuka issue organisasi.
-6. Klik ikon GitubGen V2 untuk membuka side panel.
+5. Klik ikon GitubGen V2 untuk membuka side panel.
 
 ## Instalasi Microsoft Edge
 
@@ -48,7 +47,7 @@ Hasil extension berada di folder `dist/`.
 2. Aktifkan **Developer mode**.
 3. Klik **Load unpacked**.
 4. Pilih folder `dist/`.
-5. Login GitHub, kemudian buka side panel melalui ikon extension.
+5. Buka side panel melalui ikon extension.
 
 ## Cara pakai
 
@@ -58,8 +57,7 @@ Hasil extension berada di folder `dist/`.
 4. Pilih kedalaman scan.
 5. Masukkan token GitHub read-only dengan scope `repo`, `read:org`, dan `read:project`. Token hanya berada selama proses scan dan tidak ditulis ke workbook/checkpoint.
 6. Klik **Mulai scan GitHub**.
-7. Jangan logout dari GitHub selama scan berlangsung.
-8. Setelah selesai, periksa ringkasan lalu klik **Download Excel**.
+7. Setelah selesai, periksa ringkasan lalu klik **Download Excel**.
 
 Workbook baru menggunakan urutan kolom tetap:
 
@@ -69,7 +67,7 @@ Assignee | Type | Ticket Title | Ticket URL | Type | Status | Priority | Date | 
 
 Workbook berisi sheet `KPI` dengan header, border, zebra rows, filter, lebar kolom, dan format Hour; serta sheet `Diagnostic` untuk sumber keputusan waktu.
 
-Extension akan membuka issue di tab tidak aktif dan menutupnya setelah timeline selesai dibaca. Jika browser ditutup di tengah jalan, checkpoint tetap tersimpan dan dapat digunakan untuk melanjutkan scan.
+Extension tidak membuka tab GitHub selama scan. Checkpoint tetap tersimpan dan dapat digunakan untuk melanjutkan scan.
 
 ## Kontrak data DSM
 
@@ -99,7 +97,7 @@ Contoh:
 Keputusan dan URL sumber ditulis pada sheet `Diagnostic`.
 
 - Event mention, assign, add-to-project, dan add-parent tidak dianggap sebagai bukti selesai.
-- PR linked, merge, commit, dan issue closed adalah end valid. Durasi sangat pendek tetap dipertahankan jika timestamp GitHub memang demikian.
+- PR linked/opened, comment, review, commit, merge, dan issue closed adalah end valid. Durasi sangat pendek tetap dipertahankan jika timestamp GitHub memang demikian.
 - Untuk DSM berstatus `In Progress`, transisi tersebut adalah start. Jika ada aktivitas kerja sesudahnya pada hari yang sama, aktivitas terakhir menjadi titik observasi end.
 - Khusus tiket yang masih `In Progress` pada DSM 16:00, End Time adalah jam pulang: 17:00 pada Senin–Jumat atau 16:00 pada Sabtu. Minggu tidak dibuatkan jam pulang otomatis.
 - Jika tiket masih `In Progress` pada sesi terakhir dan muncul lagi pada hari kerja berikutnya, Start Time hari lanjutan dibuat 09:00. Hari kerja adalah Senin–Sabtu, sehingga kelanjutan dari Sabtu diteruskan pada Senin.
@@ -111,7 +109,7 @@ Keputusan dan URL sumber ditulis pada sheet `Diagnostic`.
 
 ## Batasan versi awal
 
-- Activity PR/commit masih bergantung pada struktur HTML, tetapi status Project tidak lagi diambil dari HTML.
+- GraphQL membatasi setiap kelompok timeline/comment/commit/review pada 100 event per issue atau PR.
 - SheetJS Community Edition mempertahankan sebagian besar workbook, tetapi fitur Excel khusus seperti macro tidak didukung.
 - Jika GitHub tidak membuat event status (misalnya akibat bug GitHub Projects), GraphQL akan mengembalikan riwayat kosong dan aturan fallback tetap berlaku.
 - Link terkait dipindai satu tingkat secara default agar scan tidak melebar ke seluruh repository.
@@ -125,8 +123,8 @@ npm run build
 
 Source utama:
 
-- `src/background.js` — antrean tab, checkpoint, dan retry.
-- `src/content.js` — ekstraksi timeline dari halaman GitHub.
+- `src/background.js` — antrean GraphQL dan checkpoint.
+- `src/lib/github-graphql.js` — query dan normalisasi seluruh activity GitHub.
 - `src/lib/dsm-parser.js` — parser DSM.
 - `src/lib/activity-matcher.js` — rule Start/End.
 - `src/sidepanel.js` — UI, rekonsiliasi workbook, dan export.

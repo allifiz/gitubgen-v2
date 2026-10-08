@@ -81,6 +81,20 @@ test('PR linked pada parent adalah end valid bila status target tidak tercatat',
   assert.equal(result.endSourceKind,'parent');
 });
 
+test('comment dan review GraphQL merupakan bukti End Time', () => {
+  const url='https://github.com/GO-Bimbel/api/issues/1';
+  const pr='https://github.com/GO-Bimbel/api/pull/2';
+  const result=decideTimes({ticketUrl:url,date:'2026-09-08',session:'11:00',status:'ready to review'}, {
+    [url]:{url,linkedUrls:[pr],events:[{datetime:'2026-09-08T02:00:00Z',type:'status',text:'moved this to In Progress'}]},
+    [pr]:{url:pr,events:[
+      {datetime:'2026-09-08T05:00:00Z',type:'comment',text:'reviewer commented on pull request'},
+      {datetime:'2026-09-08T06:00:00Z',type:'review',text:'reviewer submitted approved review'}
+    ]}
+  });
+  assert.equal(result.end,'2026-09-08T06:00:00Z');
+  assert.equal(result.endSource,pr);
+});
+
 test('durasi beberapa detik tetap valid dan tidak dipanjangkan', () => {
   const url='https://github.com/GO-Bimbel/db-go/issues/2879';
   const result=decideTimes({ticketUrl:url,date:'2026-09-30',session:'11:00',status:'deployed'}, {
