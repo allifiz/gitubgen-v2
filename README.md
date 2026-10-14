@@ -59,7 +59,7 @@ Hasil extension berada di folder `dist/`.
 3. Pilih assignee: Hizkia, Maulana, Dwiki, atau Allief.
 4. Pilih kedalaman scan.
 5. Masukkan token GitHub read-only dengan scope `repo`, `read:org`, dan `read:project`. Token hanya berada selama proses scan dan tidak ditulis ke workbook/checkpoint.
-6. Masukkan URL dan API secret GitubGen Recorder jika sudah dideploy. Keduanya opsional; kegagalan recorder otomatis memakai fallback GraphQL.
+6. Masukkan API secret GitubGen Recorder. URL production sudah terisi otomatis; keduanya tetap opsional dan kegagalan recorder otomatis memakai fallback GraphQL.
 7. Klik **Mulai scan GitHub**.
 8. Setelah selesai, periksa ringkasan lalu klik **Download Excel**.
 
