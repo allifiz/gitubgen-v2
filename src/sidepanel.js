@@ -63,7 +63,8 @@ async function startScan() {
   const items = [...grouped].map(([url, value]) => ({ url, dates: [...value.dates], targets: value.targets }));
   setBusy(true);
   const response = await chrome.runtime.sendMessage({
-    type: 'START_SCAN', items, maxDepth: Number($('#depth').value), githubToken
+    type: 'START_SCAN', items, maxDepth: Number($('#depth').value), githubToken,
+    recorder: { url: $('#recorderUrl').value.trim(), secret: $('#recorderSecret').value.trim() }
   });
   if (!response?.ok) {
     setBusy(false);
@@ -83,11 +84,20 @@ function updateJob(job) {
     const high = decisions.filter(d => d.confidence === 'HIGH').length;
     const fallback = decisions.filter(d => d.rule === 'COMMENT_START_MATCHED_END').length;
     const review = decisions.filter(d => d.needsReview || !d.end).length;
-    $('#summary').innerHTML = `✓ ${high} status pair<br>△ ${fallback} fallback komentar<br>⚠ ${review} perlu review<br>✕ ${job.errors?.length || 0} item gagal`;
+    const recorder = job.recorderConnected
+      ? '✓ Recorder terhubung'
+      : job.recorderError ? `△ Recorder fallback: ${escapeHtml(job.recorderError)}` : '△ Recorder tidak dikonfigurasi';
+    $('#summary').innerHTML = `${recorder}<br>✓ ${high} status pair<br>△ ${fallback} fallback komentar<br>⚠ ${review} perlu review<br>✕ ${job.errors?.length || 0} item gagal`;
     $('#summary').classList.remove('hidden');
     renderPreview();
     refreshExportState();
   }
+}
+
+function escapeHtml(value) {
+  const node = document.createElement('span');
+  node.textContent = value;
+  return node.innerHTML;
 }
 
 function previewRows(entries, scans) {
