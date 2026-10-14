@@ -2,9 +2,10 @@
 
 Extension Chromium (Chrome dan Microsoft Edge) untuk merekonsiliasi file DSM, activity GitHub, parent/sub-issue, dan KPI Excel.
 
-## Fokus versi 0.8
+## Fokus versi 0.9
 
 - Seluruh status dan aktivitas issue/PR dibaca dari GitHub GraphQL menggunakan token read-only; tidak memerlukan scraping, webhook, atau GitHub App organisasi.
+- Menggabungkan riwayat dari GitubGen Recorder agar perubahan status tetap tersedia saat Activity GitHub tidak mencatatnya.
 - Memindai hingga lima issue/PR secara paralel agar proses GraphQL lebih cepat.
 - Menampilkan preview KPI berbentuk tabel setelah scan selesai sebelum workbook diunduh.
 - Membaca tiket berulang dari DSM per assignee, tanggal, dan sesi.
@@ -58,8 +59,9 @@ Hasil extension berada di folder `dist/`.
 3. Pilih assignee: Hizkia, Maulana, Dwiki, atau Allief.
 4. Pilih kedalaman scan.
 5. Masukkan token GitHub read-only dengan scope `repo`, `read:org`, dan `read:project`. Token hanya berada selama proses scan dan tidak ditulis ke workbook/checkpoint.
-6. Klik **Mulai scan GitHub**.
-7. Setelah selesai, periksa ringkasan lalu klik **Download Excel**.
+6. Masukkan URL dan API secret GitubGen Recorder jika sudah dideploy. Keduanya opsional; kegagalan recorder otomatis memakai fallback GraphQL.
+7. Klik **Mulai scan GitHub**.
+8. Setelah selesai, periksa ringkasan lalu klik **Download Excel**.
 
 Workbook baru menggunakan urutan kolom tetap:
 
@@ -91,7 +93,7 @@ Contoh:
 
 | Urutan | Start | End | Confidence |
 |---|---|---|---|
-| 1 | Parent `In Progress` | Status parent yang sama dengan status DSM | High |
+| 1 | Parent `In Progress` dari Recorder/GraphQL | Status parent yang sama dengan status DSM | High |
 | 2 | Komentar `/start` pada parent | Komentar `/end` pada parent/sub-issue/PR | Medium |
 | 3 | Parent `In Progress` atau komentar `/start` | PR/review/commit valid pada parent/sub-issue | Medium |
 | 4 | Tidak ditemukan | Tidak ditemukan | Needs Review |
@@ -114,7 +116,8 @@ Keputusan dan URL sumber ditulis pada sheet `Diagnostic`.
 
 - GraphQL membatasi setiap kelompok timeline/comment/commit/review pada 100 event per issue atau PR.
 - SheetJS Community Edition mempertahankan sebagian besar workbook, tetapi fitur Excel khusus seperti macro tidak didukung.
-- Jika GitHub tidak membuat event status (misalnya akibat bug GitHub Projects), GraphQL akan mengembalikan riwayat kosong dan aturan fallback tetap berlaku.
+- Recorder hanya dapat merekam perubahan setelah cron pertama berjalan; status sebelum instalasi tidak dapat direkonstruksi jika GitHub tidak menyimpannya.
+- Jika Recorder belum dikonfigurasi atau gagal dihubungi, GraphQL dan aturan komentar tetap berlaku.
 - Link terkait dipindai satu tingkat secara default agar scan tidak melebar ke seluruh repository.
 
 ## Pengembangan
