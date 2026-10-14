@@ -1,4 +1,5 @@
 import { fetchActivity } from './lib/github-graphql.js';
+import { fetchRecorderHistory } from './lib/recorder-api.js';
 
 const STORAGE_KEY = 'gitubgenJob';
 const SCAN_CONCURRENCY = 5;
@@ -14,7 +15,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       sendResponse({ ok: false, error: 'Scan masih berjalan.' });
       return undefined;
     }
-    startScan(message.items, message.maxDepth ?? 1, message.githubToken).catch(() => {});
+    startScan(message.items, message.maxDepth ?? 1, message.githubToken, message.recorder).catch(() => {});
     sendResponse({ ok: true });
     return undefined;
   }
@@ -29,7 +30,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   return undefined;
 });
 
-async function startScan(inputItems, maxDepth, githubToken) {
+async function startScan(inputItems, maxDepth, githubToken, recorder) {
   if (running) throw new Error('Scan masih berjalan.');
   if (!githubToken) throw new Error('Token GitHub wajib diisi untuk membaca GraphQL.');
   running = true;
@@ -44,6 +45,25 @@ async function startScan(inputItems, maxDepth, githubToken) {
           startedAt: new Date().toISOString(), maxDepth
         };
     job.status = 'running';
+
+    if (recorder?.url && recorder?.secret) {
+      try {
+        const recorderEvents = await fetchRecorderHistory(
+          recorder,
+          mergeInputItems(inputItems).map(item => item.url),
+          recorderRange(inputItems)
+        );
+        for (const [url, events] of Object.entries(recorderEvents)) {
+          job.recorderEvents ||= {};
+          job.recorderEvents[url] = events;
+        }
+        job.recorderConnected = true;
+        delete job.recorderError;
+      } catch (error) {
+        job.recorderConnected = false;
+        job.recorderError = error.message;
+      }
+    }
 
     while (job.queue.length) {
       const batch = job.queue.splice(0, SCAN_CONCURRENCY).filter(item => !job.scans[item.url]);
@@ -62,8 +82,8 @@ async function startScan(inputItems, maxDepth, githubToken) {
           job.processed += 1;
           continue;
         }
-        job.scans[item.url] = scan;
-        if (item.depth < maxDepth && needsRelatedScan(scan, item.targets)) {
+        job.scans[item.url] = mergeRecorderEvents(scan, job.recorderEvents?.[item.url]);
+        if (item.depth < maxDepth && needsRelatedScan(job.scans[item.url], item.targets)) {
           for (const linkedUrl of scan.linkedUrls || []) {
             if (!job.scans[linkedUrl] && !batchUrls.has(linkedUrl) && !job.queue.some(q => q.url === linkedUrl)) {
               job.queue.push({ url: linkedUrl, dates: item.dates, targets: item.targets, depth: item.depth + 1 });
@@ -87,6 +107,25 @@ async function startScan(inputItems, maxDepth, githubToken) {
   } finally {
     running = false;
   }
+}
+
+function recorderRange(items = []) {
+  const dates = items.flatMap(item => item.dates || []).filter(Boolean).sort();
+  if (!dates.length) return {};
+  return {
+    from: `${dates[0]}T00:00:00+07:00`,
+    to: `${dates.at(-1)}T23:59:59.999+07:00`
+  };
+}
+
+function mergeRecorderEvents(scan, recorderEvents = []) {
+  if (!recorderEvents.length) return scan;
+  const events = [...(scan.events || []), ...recorderEvents];
+  const unique = new Map(events.map(event => [
+    `${event.type}|${event.datetime}|${event.text}|${event.url || ''}`,
+    event
+  ]));
+  return { ...scan, events: [...unique.values()].sort((a, b) => new Date(a.datetime) - new Date(b.datetime)) };
 }
 
 function mergeInputItems(items = []) {
