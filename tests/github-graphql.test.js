@@ -64,9 +64,11 @@ test('GraphQL PR menghasilkan aktivitas kerja lengkap untuk End Time', () => {
 test('partial GraphQL tetap memakai komentar ketika scope Project V2 ditolak', async () => {
   const url = 'https://github.com/GO-Bimbel/api/issues/99';
   const queries = [];
+  const variablesSeen = [];
   const fetchImpl = async (_endpoint, options) => {
-    const { query } = JSON.parse(options.body);
+    const { query, variables } = JSON.parse(options.body);
     queries.push(query);
+    variablesSeen.push(variables);
     const payload = query.includes('query Activity') ? {
       data: { repository: { issue: {
         title: 'Partial', url,
@@ -85,6 +87,11 @@ test('partial GraphQL tetap memakai komentar ketika scope Project V2 ditolak', a
 
   const scan = await fetchActivity(url, 'token', fetchImpl);
   assert.equal(queries.length, 2);
+  assert.deepEqual(variablesSeen[0], {
+    owner: 'GO-Bimbel', repo: 'api', number: 99, isIssue: true, isPullRequest: false
+  });
+  assert.match(queries[0], /issue\(number: \$number\) @include\(if: \$isIssue\)/);
+  assert.match(queries[0], /pullRequest\(number: \$number\) @include\(if: \$isPullRequest\)/);
   assert.equal(scan.activitySource, 'graphql-partial');
   assert.equal(scan.events.length, 2);
   assert.deepEqual(scan.events.map(event => event.body), ['/start', '/end']);

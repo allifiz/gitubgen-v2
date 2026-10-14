@@ -1,9 +1,9 @@
 const ENDPOINT = 'https://api.github.com/graphql';
 
 export const ACTIVITY_QUERY = `
-query Activity($owner: String!, $repo: String!, $number: Int!) {
+query Activity($owner: String!, $repo: String!, $number: Int!, $isIssue: Boolean!, $isPullRequest: Boolean!) {
   repository(owner: $owner, name: $repo) {
-    issue(number: $number) {
+    issue(number: $number) @include(if: $isIssue) {
       title url createdAt closedAt
       comments(first: 100) { nodes { createdAt bodyText author { login } } }
       trackedIssues(first: 100) { nodes { url } }
@@ -18,7 +18,7 @@ query Activity($owner: String!, $repo: String!, $number: Int!) {
         }
       }
     }
-    pullRequest(number: $number) {
+    pullRequest(number: $number) @include(if: $isPullRequest) {
       title url createdAt closedAt mergedAt author { login } mergedBy { login }
       comments(first: 100) { nodes { createdAt bodyText author { login } } }
       reviews(first: 100) { nodes { submittedAt author { login } state } }
@@ -40,9 +40,9 @@ query Activity($owner: String!, $repo: String!, $number: Int!) {
 }`;
 
 export const PROJECT_ACTIVITY_QUERY = `
-query ProjectActivity($owner: String!, $repo: String!, $number: Int!) {
+query ProjectActivity($owner: String!, $repo: String!, $number: Int!, $isIssue: Boolean!, $isPullRequest: Boolean!) {
   repository(owner: $owner, name: $repo) {
-    issue(number: $number) {
+    issue(number: $number) @include(if: $isIssue) {
       title url
       projectItems(first: 20) {
         nodes { fieldValues(first: 100) { nodes {
@@ -55,7 +55,7 @@ query ProjectActivity($owner: String!, $repo: String!, $number: Int!) {
         } }
       }
     }
-    pullRequest(number: $number) {
+    pullRequest(number: $number) @include(if: $isPullRequest) {
       title url
       projectItems(first: 20) {
         nodes { fieldValues(first: 100) { nodes {
@@ -187,7 +187,13 @@ export async function fetchActivity(url, token, fetchImpl = fetch) {
   const target = parseIssueUrl(url);
   if (!target) throw new Error('URL issue/PR GitHub tidak valid.');
   if (!token) throw new Error('Token GitHub belum diisi.');
-  const variables = { owner: target.owner, repo: target.repo, number: target.number };
+  const variables = {
+    owner: target.owner,
+    repo: target.repo,
+    number: target.number,
+    isIssue: target.kind === 'issues',
+    isPullRequest: target.kind === 'pull'
+  };
   const corePayload = await fetchGraphql(ACTIVITY_QUERY, variables, token, fetchImpl);
   const coreErrors = errorMessages(corePayload);
   if (!corePayload.data?.repository) {
