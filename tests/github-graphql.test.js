@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeActivity, normalizeStatusHistory, parseIssueUrl } from '../src/lib/github-graphql.js';
+import { fetchActivity, normalizeActivity, normalizeStatusHistory, parseIssueUrl } from '../src/lib/github-graphql.js';
 
 test('URL GitHub issue diubah menjadi variabel GraphQL', () => {
   assert.deepEqual(parseIssueUrl('https://github.com/GO-Bimbel/db-sekolah/issues/1272'), {
@@ -59,4 +59,34 @@ test('GraphQL PR menghasilkan aktivitas kerja lengkap untuk End Time', () => {
   const scan = normalizeActivity(payload, url);
   assert.deepEqual(scan.events.map(event => event.type), ['pull_request', 'commit', 'comment', 'review', 'pull_request']);
   assert.match(scan.events.at(-1).text, /merged pull request/);
+});
+
+test('partial GraphQL tetap memakai komentar ketika scope Project V2 ditolak', async () => {
+  const url = 'https://github.com/GO-Bimbel/api/issues/99';
+  const queries = [];
+  const fetchImpl = async (_endpoint, options) => {
+    const { query } = JSON.parse(options.body);
+    queries.push(query);
+    const payload = query.includes('query Activity') ? {
+      data: { repository: { issue: {
+        title: 'Partial', url,
+        comments: { nodes: [
+          { createdAt: '2026-10-08T04:00:00Z', bodyText: '/start', author: { login: 'allif' } },
+          { createdAt: '2026-10-08T09:00:00Z', bodyText: '/end', author: { login: 'allif' } }
+        ] },
+        trackedIssues: null, timelineItems: null
+      }, pullRequest: null } }
+    } : {
+      errors: [{ message: 'Resource not accessible by personal access token', path: ['repository', 'issue', 'projectItems'] }],
+      data: { repository: { issue: null, pullRequest: null } }
+    };
+    return { ok: true, json: async () => payload };
+  };
+
+  const scan = await fetchActivity(url, 'token', fetchImpl);
+  assert.equal(queries.length, 2);
+  assert.equal(scan.activitySource, 'graphql-partial');
+  assert.equal(scan.events.length, 2);
+  assert.deepEqual(scan.events.map(event => event.body), ['/start', '/end']);
+  assert.match(scan.warnings[0], /not accessible/i);
 });

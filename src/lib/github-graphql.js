@@ -7,16 +7,8 @@ query Activity($owner: String!, $repo: String!, $number: Int!) {
       title url createdAt closedAt
       comments(first: 100) { nodes { createdAt bodyText author { login } } }
       trackedIssues(first: 100) { nodes { url } }
-      projectItems(first: 20) {
-        nodes { fieldValues(first: 100) { nodes {
-          ... on ProjectV2ItemFieldDateValue { date field { ... on ProjectV2Field { name } } }
-        } } }
-      }
-      timelineItems(first: 100, itemTypes: [PROJECT_V2_ITEM_STATUS_CHANGED_EVENT, CROSS_REFERENCED_EVENT, CLOSED_EVENT, REOPENED_EVENT]) {
+      timelineItems(first: 100, itemTypes: [CROSS_REFERENCED_EVENT, CLOSED_EVENT, REOPENED_EVENT]) {
         nodes {
-          ... on ProjectV2ItemStatusChangedEvent {
-            __typename createdAt previousStatus status wasAutomated actor { login } project { number title }
-          }
           ... on CrossReferencedEvent {
             __typename createdAt actor { login }
             source { ... on Issue { url title } ... on PullRequest { url title } }
@@ -33,16 +25,8 @@ query Activity($owner: String!, $repo: String!, $number: Int!) {
       commits(first: 100) {
         nodes { commit { committedDate messageHeadline url author { user { login } } } }
       }
-      projectItems(first: 20) {
-        nodes { fieldValues(first: 100) { nodes {
-          ... on ProjectV2ItemFieldDateValue { date field { ... on ProjectV2Field { name } } }
-        } } }
-      }
-      timelineItems(first: 100, itemTypes: [PROJECT_V2_ITEM_STATUS_CHANGED_EVENT, CROSS_REFERENCED_EVENT, CLOSED_EVENT, REOPENED_EVENT]) {
+      timelineItems(first: 100, itemTypes: [CROSS_REFERENCED_EVENT, CLOSED_EVENT, REOPENED_EVENT]) {
         nodes {
-          ... on ProjectV2ItemStatusChangedEvent {
-            __typename createdAt previousStatus status wasAutomated actor { login } project { number title }
-          }
           ... on CrossReferencedEvent {
             __typename createdAt actor { login }
             source { ... on Issue { url title } ... on PullRequest { url title } }
@@ -50,6 +34,38 @@ query Activity($owner: String!, $repo: String!, $number: Int!) {
           ... on ClosedEvent { __typename createdAt actor { login } }
           ... on ReopenedEvent { __typename createdAt actor { login } }
         }
+      }
+    }
+  }
+}`;
+
+export const PROJECT_ACTIVITY_QUERY = `
+query ProjectActivity($owner: String!, $repo: String!, $number: Int!) {
+  repository(owner: $owner, name: $repo) {
+    issue(number: $number) {
+      title url
+      projectItems(first: 20) {
+        nodes { fieldValues(first: 100) { nodes {
+          ... on ProjectV2ItemFieldDateValue { date field { ... on ProjectV2Field { name } } }
+        } } }
+      }
+      timelineItems(first: 100, itemTypes: [PROJECT_V2_ITEM_STATUS_CHANGED_EVENT]) {
+        nodes { ... on ProjectV2ItemStatusChangedEvent {
+          __typename createdAt previousStatus status wasAutomated actor { login } project { number title }
+        } }
+      }
+    }
+    pullRequest(number: $number) {
+      title url
+      projectItems(first: 20) {
+        nodes { fieldValues(first: 100) { nodes {
+          ... on ProjectV2ItemFieldDateValue { date field { ... on ProjectV2Field { name } } }
+        } } }
+      }
+      timelineItems(first: 100, itemTypes: [PROJECT_V2_ITEM_STATUS_CHANGED_EVENT]) {
+        nodes { ... on ProjectV2ItemStatusChangedEvent {
+          __typename createdAt previousStatus status wasAutomated actor { login } project { number title }
+        } }
       }
     }
   }
@@ -171,19 +187,61 @@ export async function fetchActivity(url, token, fetchImpl = fetch) {
   const target = parseIssueUrl(url);
   if (!target) throw new Error('URL issue/PR GitHub tidak valid.');
   if (!token) throw new Error('Token GitHub belum diisi.');
+  const variables = { owner: target.owner, repo: target.repo, number: target.number };
+  const corePayload = await fetchGraphql(ACTIVITY_QUERY, variables, token, fetchImpl);
+  const coreErrors = errorMessages(corePayload);
+  if (!corePayload.data?.repository) {
+    throw new Error(coreErrors.join('; ') || 'Repository tidak dapat diakses oleh token GitHub.');
+  }
+  const coreScan = normalizeActivity(corePayload, url);
+  const warnings = [...coreErrors];
+
+  try {
+    const projectPayload = await fetchGraphql(PROJECT_ACTIVITY_QUERY, variables, token, fetchImpl);
+    const projectErrors = errorMessages(projectPayload);
+    warnings.push(...projectErrors);
+    if (!projectErrors.length && projectPayload.data?.repository) {
+      return mergeActivityScans(coreScan, normalizeActivity(projectPayload, url), warnings);
+    }
+  } catch (error) {
+    warnings.push(error.message);
+  }
+
+  return warnings.length
+    ? { ...coreScan, activitySource: 'graphql-partial', warnings }
+    : coreScan;
+}
+
+async function fetchGraphql(query, variables, token, fetchImpl) {
   const response = await fetchImpl(ENDPOINT, {
     method: 'POST',
     headers: {
       Accept: 'application/vnd.github+json', Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json'
     },
-    body: JSON.stringify({ query: ACTIVITY_QUERY, variables: { owner: target.owner, repo: target.repo, number: target.number } })
+    body: JSON.stringify({ query, variables })
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(`GraphQL GitHub gagal (${response.status}).`);
-  if (payload.errors?.length) throw new Error(payload.errors.map(error => error.message).join('; '));
-  if (!payload.data?.repository) throw new Error('Repository tidak dapat diakses oleh token GitHub.');
-  return normalizeActivity(payload, url);
+  return payload;
+}
+
+function errorMessages(payload) {
+  return (payload.errors || []).map(error => error.message).filter(Boolean);
+}
+
+function mergeActivityScans(core, project, warnings = []) {
+  const uniqueEvents = new Map([...core.events, ...project.events].map(event => [
+    `${event.type}|${event.datetime}|${event.text}|${event.url || ''}`,
+    event
+  ]));
+  const scan = {
+    ...core,
+    events: [...uniqueEvents.values()].sort((a, b) => new Date(a.datetime) - new Date(b.datetime)),
+    linkedUrls: [...new Set([...(core.linkedUrls || []), ...(project.linkedUrls || [])])],
+    targetDate: project.targetDate || core.targetDate
+  };
+  return warnings.length ? { ...scan, activitySource: 'graphql-partial', warnings } : scan;
 }
 
 export const normalizeStatusHistory = (payload, url) =>

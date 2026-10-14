@@ -200,6 +200,34 @@ test('In Progress pada DSM 16 berakhir pada jam pulang kerja', () => {
   assert.match(result.end,/2026-09-08T17:00:00\+07:00/);
 });
 
+test('status inprogress tanpa spasi tetap dikenali', () => {
+  const url='https://github.com/GO-Bimbel/service/issues/92';
+  const result=decideTimes({ticketUrl:url,date:'2026-10-08',session:'16:00',sessions:['11:00','16:00'],status:'inprogress'}, {
+    [url]:{url,linkedUrls:[],events:[
+      {datetime:'2026-10-08T04:00:00Z',type:'comment',body:'/start',text:'allif commented on issue: /start'}
+    ]}
+  });
+  assert.equal(result.rule,'IN_PROGRESS_UNTIL_WORKDAY_END');
+  assert.equal(result.start,'2026-10-08T04:00:00Z');
+  assert.equal(result.end,'2026-10-08T17:00:00+07:00');
+});
+
+test('fallback marker lintas hari memakai 09.00 untuk tiket lanjutan', () => {
+  const url='https://github.com/GO-Bimbel/go-superapp-api/issues/3936';
+  const result=decideTimes({
+    ticketUrl:url,date:'2026-10-09',session:'16:00',sessions:['11:00','16:00'],
+    status:'ready to review',continuedFromPreviousDay:true
+  }, {
+    [url]:{url,linkedUrls:[],events:[
+      {datetime:'2026-10-08T04:00:00Z',type:'comment',body:'/start',text:'allif commented on issue: /start'},
+      {datetime:'2026-10-09T09:02:00Z',type:'comment',body:'/end',text:'allif commented on issue: /end'}
+    ]}
+  });
+  assert.equal(result.start,'2026-10-09T09:00:00+07:00');
+  assert.equal(result.end,'2026-10-09T09:02:00Z');
+  assert.equal(Number(result.hours.toFixed(2)),5.03);
+});
+
 test('komentar end mengalahkan jam pulang untuk In Progress DSM 16', () => {
   const url='https://github.com/GO-Bimbel/service/issues/91';
   const result=decideTimes({ticketUrl:url,date:'2026-09-08',session:'16:00',sessions:['16:00'],status:'In Progress'}, {

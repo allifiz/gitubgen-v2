@@ -6,6 +6,7 @@ import { normalizePerson } from './lib/person.js';
 import { systemType, ticketType, weekOfMonth } from './lib/kpi-fields.js';
 
 const state = { entries: [], workbook: null, kpiFileName: null, job: null };
+const CREDENTIALS_KEY = 'gitubgenCredentials';
 const $ = selector => document.querySelector(selector);
 const dsmFile = $('#dsmFile');
 const kpiFile = $('#kpiFile');
@@ -23,6 +24,14 @@ chrome.runtime.onMessage.addListener(event => {
 });
 
 restoreJob();
+restoreCredentials();
+
+async function restoreCredentials() {
+  const saved = (await chrome.storage.session.get(CREDENTIALS_KEY))[CREDENTIALS_KEY] || {};
+  if (saved.githubToken) $('#githubToken').value = saved.githubToken;
+  if (saved.recorderUrl) $('#recorderUrl').value = saved.recorderUrl;
+  if (saved.recorderSecret) $('#recorderSecret').value = saved.recorderSecret;
+}
 
 async function loadDsm() {
   clearMessage();
@@ -51,6 +60,8 @@ async function startScan() {
   if (!dsmFile.files[0]) return showError('Pilih file DSM terlebih dahulu.');
   const githubToken = $('#githubToken').value.trim();
   if (!githubToken) return showError('Isi GitHub token read-only untuk mengambil status history GraphQL.');
+  const recorder = { url: $('#recorderUrl').value.trim(), secret: $('#recorderSecret').value.trim() };
+  await chrome.storage.session.set({ [CREDENTIALS_KEY]: { githubToken, ...recorder } });
   await loadDsm();
   if (!state.entries.length) return;
   const grouped = new Map();
@@ -64,7 +75,7 @@ async function startScan() {
   setBusy(true);
   const response = await chrome.runtime.sendMessage({
     type: 'START_SCAN', items, maxDepth: Number($('#depth').value), githubToken,
-    recorder: { url: $('#recorderUrl').value.trim(), secret: $('#recorderSecret').value.trim() }
+    recorder
   });
   if (!response?.ok) {
     setBusy(false);
@@ -87,7 +98,10 @@ function updateJob(job) {
     const recorder = job.recorderConnected
       ? '✓ Recorder terhubung'
       : job.recorderError ? `△ Recorder fallback: ${escapeHtml(job.recorderError)}` : '△ Recorder tidak dikonfigurasi';
-    $('#summary').innerHTML = `${recorder}<br>✓ ${high} status pair<br>△ ${fallback} fallback komentar<br>⚠ ${review} perlu review<br>✕ ${job.errors?.length || 0} item gagal`;
+    const errors = (job.errors || []).slice(0, 3)
+      .map(item => `<br><small>• ${escapeHtml(item.url)} — ${escapeHtml(item.error)}</small>`).join('');
+    const warnings = job.warnings?.length ? `<br>△ ${job.warnings.length} partial GraphQL (komentar tetap dipakai)` : '';
+    $('#summary').innerHTML = `${recorder}<br>✓ ${high} status pair<br>△ ${fallback} fallback komentar${warnings}<br>⚠ ${review} perlu review<br>✕ ${job.errors?.length || 0} item gagal${errors}`;
     $('#summary').classList.remove('hidden');
     renderPreview();
     refreshExportState();
@@ -356,7 +370,10 @@ function prepareDailyEntries(entries) {
   }
   return rows.sort((a,b)=>`${a.date}|${a.ticketUrl}`.localeCompare(`${b.date}|${b.ticketUrl}`));
 }
-function normalizeStatusText(v=''){return String(v).toLowerCase().replace(/[_-]+/g,' ').replace(/\s+/g,' ').trim();}
+function normalizeStatusText(v=''){
+  const normalized=String(v).toLowerCase().replace(/[_-]+/g,' ').replace(/\s+/g,' ').trim();
+  return /^in\s*progress$/.test(normalized)?'in progress':normalized;
+}
 function displayDateOrBlank(value){return value?displayDate(value):'';}
 function sortDateValue(value){const p=String(value||'').match(/^(\d{2})\/(\d{2})\/(\d{4})$/);return p?`${p[3]}-${p[2]}-${p[1]}`:String(value||'');}
 function sortKpiSheetByDate(sheet){

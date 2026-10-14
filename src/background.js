@@ -42,6 +42,7 @@ async function startScan(inputItems, maxDepth, githubToken, recorder) {
           status: 'running',
           queue: mergeInputItems(inputItems).map(item => ({ ...item, depth: 0 })),
           scans: {}, errors: [], processed: 0, total: mergeInputItems(inputItems).length,
+          warnings: [],
           startedAt: new Date().toISOString(), maxDepth
         };
     job.status = 'running';
@@ -83,6 +84,10 @@ async function startScan(inputItems, maxDepth, githubToken, recorder) {
           continue;
         }
         job.scans[item.url] = mergeRecorderEvents(scan, job.recorderEvents?.[item.url]);
+        for (const warning of scan.warnings || []) {
+          job.warnings ||= [];
+          job.warnings.push({ url: item.url, warning });
+        }
         if (item.depth < maxDepth && needsRelatedScan(job.scans[item.url], item.targets)) {
           for (const linkedUrl of scan.linkedUrls || []) {
             if (!job.scans[linkedUrl] && !batchUrls.has(linkedUrl) && !job.queue.some(q => q.url === linkedUrl)) {

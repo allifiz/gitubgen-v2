@@ -21,7 +21,8 @@ function localDate(iso) {
 }
 
 function normalizeStatus(value = '') {
-  return String(value).toLowerCase().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
+  const normalized = String(value).toLowerCase().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
+  return /^in\s*progress$/.test(normalized) ? START_STATUS : normalized;
 }
 
 function transitionTarget(event) {
