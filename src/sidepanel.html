@@ -35,6 +35,13 @@
         <input id="githubToken" type="password" autocomplete="off" placeholder="github_pat_... atau ghp_...">
       </label>
       <p class="hint">Dipakai langsung ke GraphQL dan hanya berada selama proses scan. Scope: repo, read:org, read:project.</p>
+      <label>Recorder URL <small>(opsional)</small>
+        <input id="recorderUrl" type="url" placeholder="https://gitubgen-recorder.vercel.app">
+      </label>
+      <label class="token-label">Recorder API secret <small>(opsional)</small>
+        <input id="recorderSecret" type="password" autocomplete="off" placeholder="API secret">
+      </label>
+      <p class="hint">Recorder mengisi riwayat status yang hilang dari Activity GitHub. Secret hanya berada selama scan.</p>
     </section>
 
     <section class="card">
@@ -67,7 +74,7 @@
 
     <section class="card note">
       <h2>Aturan KPI</h2>
-      <p><b>Prioritas:</b> status history GraphQL pada parent, lalu activity PR/commit untuk End Time.</p>
+      <p><b>Prioritas:</b> riwayat GitubGen Recorder dan GraphQL pada parent, lalu activity PR/commit untuk End Time.</p>
       <p>Jika status history hilang, gunakan komentar yang isinya persis <code>/start</code> atau <code>/end</code>. Jam DSM tidak dipakai sebagai fallback Start.</p>
     </section>
     <p id="message" class="message"></p>
