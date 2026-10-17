@@ -1,36 +1,60 @@
-import * as XLSX from 'xlsx-js-style';
-import { collapseDailyEntries, parseDsm } from './lib/dsm-parser.js';
-import { decideTimes, uniqueTicketPeriod, targetDateForTicket, latestGitHubStatus, isNextWorkday } from './lib/activity-matcher.js';
-import { normalizeGitHubUrl } from './lib/github-url.js';
-import { normalizePerson } from './lib/person.js';
-import { systemType, ticketType, weekOfMonth } from './lib/kpi-fields.js';
+import XLSX from "xlsx-js-style";
+import { collapseDailyEntries, parseDsm } from "./lib/dsm-parser.js";
+import { decideTimes, decisionRows } from "./lib/activity-matcher.js";
+import {
+  createWorkbookFromDsm,
+  fillWorkbook,
+  formatDateTime,
+  displayAssignee,
+  displayDate,
+  displayStatus,
+  generatedFileName,
+  prepareDailyEntries,
+} from "./lib/workbook.js";
+import { inputContext } from "./lib/job.js";
+export { createWorkbookFromDsm, fillWorkbook } from "./lib/workbook.js";
+import { normalizeGitHubUrl } from "./lib/github-url.js";
+import { normalizePerson } from "./lib/person.js";
+import { systemType, ticketType, weekOfMonth } from "./lib/kpi-fields.js";
 
 const state = { entries: [], workbook: null, kpiFileName: null, job: null };
-const CREDENTIALS_KEY = 'gitubgenCredentials';
-const $ = selector => document.querySelector(selector);
-const dsmFile = $('#dsmFile');
-const kpiFile = $('#kpiFile');
-const scanButton = $('#scan');
-const exportButton = $('#export');
-const message = $('#message');
+const CREDENTIALS_KEY = "gitubgenCredentials";
+const $ = (selector) => document.querySelector(selector);
+const dsmFile = $("#dsmFile");
+const kpiFile = $("#kpiFile");
+const scanButton = $("#scan");
+const exportButton = $("#export");
+const message = $("#message");
 
-dsmFile.addEventListener('change', loadDsm);
-kpiFile.addEventListener('change', loadWorkbook);
-scanButton.addEventListener('click', startScan);
-exportButton.addEventListener('click', exportWorkbook);
-$('#reset').addEventListener('click', resetJob);
-chrome.runtime.onMessage.addListener(event => {
-  if (event.type === 'JOB_PROGRESS') updateJob(event.job);
+const guarded = (fn) => async () => {
+  try {
+    await fn();
+  } catch (error) {
+    setBusy(false);
+    showError(error.message);
+  }
+};
+dsmFile.addEventListener("change", guarded(loadDsm));
+for (const input of document.querySelectorAll('[name="assignee"]'))
+  input.addEventListener("change", guarded(loadDsm));
+$("#depth").addEventListener("change", refreshExportState);
+kpiFile.addEventListener("change", guarded(loadWorkbook));
+scanButton.addEventListener("click", guarded(startScan));
+exportButton.addEventListener("click", guarded(exportWorkbook));
+$("#reset").addEventListener("click", resetJob);
+chrome.runtime.onMessage.addListener((event) => {
+  if (event.type === "JOB_PROGRESS") updateJob(event.job);
 });
 
 restoreJob();
 restoreCredentials();
 
 async function restoreCredentials() {
-  const saved = (await chrome.storage.session.get(CREDENTIALS_KEY))[CREDENTIALS_KEY] || {};
-  if (saved.githubToken) $('#githubToken').value = saved.githubToken;
-  if (saved.recorderUrl) $('#recorderUrl').value = saved.recorderUrl;
-  if (saved.recorderSecret) $('#recorderSecret').value = saved.recorderSecret;
+  const saved =
+    (await chrome.storage.session.get(CREDENTIALS_KEY))[CREDENTIALS_KEY] || {};
+  if (saved.githubToken) $("#githubToken").value = saved.githubToken;
+  if (saved.recorderUrl||saved.url) $("#recorderUrl").value = saved.recorderUrl||saved.url;
+  if (saved.recorderSecret||saved.secret) $("#recorderSecret").value = saved.recorderSecret||saved.secret;
 }
 
 async function loadDsm() {
@@ -38,10 +62,17 @@ async function loadDsm() {
   const file = dsmFile.files[0];
   if (!file) return;
   const selected = selectedAssignees();
-  state.entries = parseDsm(await file.text(), { year: 2026, assignees: selected });
-  if (!state.entries.length) showError('Tidak menemukan tiket DSM lengkap dengan tanggal, sesi, dan assignee.');
+  state.entries = parseDsm(await file.text(), { assignees: selected });
+  if (!state.entries.length)
+    showError(
+      "Tidak menemukan tiket DSM lengkap dengan tanggal, sesi, dan assignee.",
+    );
   else showInfo(`${state.entries.length} kemunculan tiket DSM ditemukan.`);
-  if (state.job?.status === 'completed') renderPreview();
+  if (
+    state.job?.status === "completed" &&
+    state.job.inputContext === inputContext(state.entries)
+  )
+    updateJob(state.job);
   refreshExportState();
 }
 
@@ -49,7 +80,27 @@ async function loadWorkbook() {
   clearMessage();
   const file = kpiFile.files[0];
   if (!file) return;
-  state.workbook = XLSX.read(await file.arrayBuffer(), { type: 'array', cellStyles: true, cellDates: false });
+  state.workbook = XLSX.read(await file.arrayBuffer(), {
+    type: "array",
+    cellStyles: true,
+    cellDates: false,
+    bookFiles: true,
+  });
+  const unsupported = (state.workbook.keys || []).filter(
+    (k) =>
+      /^xl\/(charts|drawings|pivotTables|pivotCache|activeX|embeddings)\//.test(
+        k,
+      ) || /vbaProject/.test(k),
+  );
+  if (unsupported.length) {
+    state.workbook = null;
+    state.kpiFileName = null;
+    kpiFile.value = "";
+    showError(
+      "Workbook berisi chart/pivot/macro yang belum bisa dipertahankan. Impor dibatalkan; buat workbook baru dari DSM.",
+    );
+    return;
+  }
   state.kpiFileName = file.name;
   showInfo(`Workbook ${file.name} siap.`);
   refreshExportState();
@@ -57,369 +108,301 @@ async function loadWorkbook() {
 
 async function startScan() {
   clearMessage();
-  if (!dsmFile.files[0]) return showError('Pilih file DSM terlebih dahulu.');
-  const githubToken = $('#githubToken').value.trim();
-  if (!githubToken) return showError('Isi GitHub token read-only untuk mengambil status history GraphQL.');
-  const recorder = { url: $('#recorderUrl').value.trim(), secret: $('#recorderSecret').value.trim() };
-  await chrome.storage.session.set({ [CREDENTIALS_KEY]: { githubToken, ...recorder } });
+  if (!dsmFile.files[0]) return showError("Pilih file DSM terlebih dahulu.");
+  const githubToken = $("#githubToken").value.trim();
+  if (!githubToken && !$("#recorderSecret").value.trim())
+    return showError(
+      "Isi GitHub token read-only untuk mengambil status history GraphQL.",
+    );
+  const recorder = {
+    url: $("#recorderUrl").value.trim(),
+    secret: $("#recorderSecret").value.trim(),
+  };
+  if (recorder.url && recorder.secret) {
+    try {
+      const u = new URL(recorder.url);
+      if (u.protocol !== "https:" || !u.hostname.endsWith(".vercel.app"))
+        return showError(
+          "Recorder URL extension harus HTTPS pada domain *.vercel.app.",
+        );
+    } catch {
+      return showError("Recorder URL tidak valid.");
+    }
+  }
+  await chrome.storage.session.set({
+    [CREDENTIALS_KEY]: {
+      githubToken,
+      recorderUrl: recorder.url,
+      recorderSecret: recorder.secret,
+    },
+  });
   await loadDsm();
   if (!state.entries.length) return;
   const grouped = new Map();
   for (const entry of collapseDailyEntries(state.entries)) {
-    const current = grouped.get(entry.ticketUrl) || { dates: new Set(), targets: {} };
+    const current = grouped.get(entry.ticketUrl) || {
+      dates: new Set(),
+      targets: {},
+    };
     current.dates.add(entry.date);
-    current.targets[entry.date] = [...new Set([...(current.targets[entry.date] || []), entry.status].filter(Boolean))];
+    current.targets[entry.date] = [
+      ...new Set(
+        [...(current.targets[entry.date] || []), entry.status].filter(Boolean),
+      ),
+    ];
     grouped.set(entry.ticketUrl, current);
   }
-  const items = [...grouped].map(([url, value]) => ({ url, dates: [...value.dates], targets: value.targets }));
+  const items = [...grouped].map(([url, value]) => ({
+    url,
+    dates: [...value.dates],
+    targets: value.targets,
+  }));
   setBusy(true);
   const response = await chrome.runtime.sendMessage({
-    type: 'START_SCAN', items, maxDepth: Number($('#depth').value), githubToken,
-    recorder
+    type: "START_SCAN",
+    items,
+    maxDepth: Number($("#depth").value),
+    githubToken,
+    recorder,
+    inputContext: inputContext(state.entries),
   });
   if (!response?.ok) {
     setBusy(false);
-    showError(response?.error || 'Tidak dapat memulai scan.');
+    showError(response?.error || "Tidak dapat memulai scan.");
   }
 }
 
 function updateJob(job) {
   state.job = job;
-  $('#progressWrap').classList.remove('hidden');
-  const percentage = job.total ? Math.round((job.processed / job.total) * 100) : 0;
-  $('#progressBar').style.width = `${percentage}%`;
-  $('#progressText').textContent = `${job.processed || 0}/${job.total || 0} item · ${job.status}`;
-  if (job.status === 'completed') {
+  $("#progressWrap").classList.remove("hidden");
+  const percentage = job.total
+    ? Math.round((job.processed / job.total) * 100)
+    : 0;
+  $("#progressBar").style.width = `${percentage}%`;
+  $("#progressText").textContent =
+    `${job.processed || 0}/${job.total || 0} item · ${job.status}`;
+  if (["paused", "error"].includes(job.status)) {
     setBusy(false);
-    const decisions = collapseDailyEntries(state.entries).map(entry => decideTimes(entry, job.scans));
-    const high = decisions.filter(d => d.confidence === 'HIGH').length;
-    const fallback = decisions.filter(d => d.rule === 'COMMENT_START_MATCHED_END').length;
-    const review = decisions.filter(d => d.needsReview || !d.end).length;
+    showError(job.fatalError || "Scan terhenti; klik scan untuk lanjut.");
+  }
+  if (job.status === "completed") {
+    setBusy(false);
+    const decisions = decisionRows(
+      prepareDailyEntries(state.entries),
+      job.scans,
+    ).map((m) => m.decision);
+    const high = decisions.filter((d) => d.confidence === "HIGH").length;
+    const fallback = decisions.filter((d) =>
+      d.intervals?.some((i) => i.reason === "explicit_end"),
+    ).length;
+    const review = decisions.filter((d) => d.needsReview || !d.end).length;
     const recorder = job.recorderConnected
-      ? '✓ Recorder terhubung'
-      : job.recorderError ? `△ Recorder fallback: ${escapeHtml(job.recorderError)}` : '△ Recorder tidak dikonfigurasi';
-    const errors = (job.errors || []).slice(0, 3)
-      .map(item => `<br><small>• ${escapeHtml(item.url)} — ${escapeHtml(item.error)}</small>`).join('');
-    const warnings = job.warnings?.length ? `<br>△ ${job.warnings.length} partial GraphQL (komentar tetap dipakai)` : '';
-    $('#summary').innerHTML = `${recorder}<br>✓ ${high} status pair<br>△ ${fallback} fallback komentar${warnings}<br>⚠ ${review} perlu review<br>✕ ${job.errors?.length || 0} item gagal${errors}`;
-    $('#summary').classList.remove('hidden');
+      ? "✓ Recorder terhubung"
+      : job.recorderError
+        ? `△ Recorder fallback: ${escapeHtml(job.recorderError)}`
+        : "△ Recorder tidak dikonfigurasi";
+    const errors = (job.errors || [])
+      .slice(0, 3)
+      .map(
+        (item) =>
+          `<br><small>• ${escapeHtml(item.url)} — ${escapeHtml(item.error)}</small>`,
+      )
+      .join("");
+    const warnings = job.warnings?.length
+      ? `<br>△ ${job.warnings.length} partial GraphQL (komentar tetap dipakai)`
+      : "";
+    $("#summary").innerHTML =
+      `${recorder}<br>✓ ${high} hasil confidence HIGH<br>△ ${fallback} fallback komentar${warnings}<br>⚠ ${review} perlu review<br>✕ ${job.errors?.length || 0} item gagal${errors}`;
+    $("#summary").classList.remove("hidden");
     renderPreview();
     refreshExportState();
   }
 }
 
 function escapeHtml(value) {
-  const node = document.createElement('span');
+  const node = document.createElement("span");
   node.textContent = value;
   return node.innerHTML;
 }
 
 function previewRows(entries, scans) {
-  return prepareDailyEntries(entries).map(entry => {
-    const decision = decideTimes(entry, scans);
-    return {
-      assignee: displayAssignee(entry.assignee), date: displayDate(entry.date),
-      ticket: entry.ticketTitle || entry.ticketUrl, url: entry.ticketUrl,
-      status: displayStatus(entry.status),
-      start: decision.start ? formatDateTime(decision.start) : '',
-      end: decision.end ? formatDateTime(decision.end) : '',
-      hours: decision.hours == null ? '' : Number(decision.hours.toFixed(2)),
-      rule: decision.rule, review: decision.needsReview || !decision.start || !decision.end
-    };
-  });
+  return decisionRows(prepareDailyEntries(entries), scans).map(
+    ({ entry, decision }) => {
+      return {
+        assignee: displayAssignee(entry.assignee),
+        date: displayDate(entry.date),
+        ticket: entry.ticketTitle || entry.ticketUrl,
+        url: entry.ticketUrl,
+        status: displayStatus(entry.status),
+        start: decision.start ? formatDateTime(decision.start) : "",
+        end: decision.end ? formatDateTime(decision.end) : "",
+        hours: decision.hours == null ? "" : Number(decision.hours.toFixed(2)),
+        rule: [decision.rule, ...decision.flags].join(" · "),
+        review: decision.needsReview || !decision.start || !decision.end,
+      };
+    },
+  );
 }
 
 function renderPreview() {
-  const card = $('#previewCard');
-  const body = $('#previewTable tbody');
+  const card = $("#previewCard");
+  const body = $("#previewTable tbody");
   body.replaceChildren();
   const rows = previewRows(state.entries, state.job?.scans || {});
   for (const row of rows) {
-    const tr = document.createElement('tr');
-    const values = [row.assignee,row.date,row.ticket,row.status,row.start,row.end,row.hours,row.rule,row.review?'YES':'NO'];
+    const tr = document.createElement("tr");
+    const values = [
+      row.assignee,
+      row.date,
+      row.ticket,
+      row.status,
+      row.start,
+      row.end,
+      row.hours,
+      row.rule,
+      row.review ? "YES" : "NO",
+    ];
     values.forEach((value, index) => {
-      const td = document.createElement('td');
+      const td = document.createElement("td");
       td.textContent = value;
       if (index === 2) {
-        td.className = 'ticket';
+        td.className = "ticket";
         td.title = row.url;
       }
-      if (index === 8) td.className = row.review ? 'review-yes' : 'review-no';
+      if (index === 8) td.className = row.review ? "review-yes" : "review-no";
       tr.appendChild(td);
     });
     body.appendChild(tr);
   }
-  $('#previewCount').textContent = `${rows.length} row`;
-  card.classList.toggle('hidden', !rows.length);
+  $("#previewCount").textContent = `${rows.length} row`;
+  card.classList.toggle("hidden", !rows.length);
 }
 
 async function exportWorkbook() {
-  if (!state.job) return showError('Hasil scan belum tersedia.');
-  const result = state.workbook
-    ? fillWorkbook(state.workbook, state.entries, state.job.scans)
+  if (!state.job) return showError("Hasil scan belum tersedia.");
+  if (
+    state.job.inputContext !== inputContext(state.entries) ||
+    state.job.maxDepth !== Number($("#depth").value)
+  )
+    return showError(
+      "Input DSM/PIC berubah. Jalankan scan untuk input ini terlebih dahulu.",
+    );
+  const options = { mode: $("#importMode").value };
+  let result = state.workbook
+    ? fillWorkbook(state.workbook, state.entries, state.job.scans, options)
     : createWorkbookFromDsm(state.entries, state.job.scans);
-  const bytes = XLSX.write(result.workbook, { bookType: 'xlsx', type: 'array', cellStyles: true });
-  const blob = new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  if (state.workbook) {
+    const approved = await reviewChanges(result.changes);
+    if (approved == null) return;
+    result = fillWorkbook(state.workbook, state.entries, state.job.scans, {
+      ...options,
+      allowedRowIds: approved,
+    });
+  }
+
+  const bytes = XLSX.write(result.workbook, {
+    bookType: "xlsx",
+    type: "array",
+    cellStyles: true,
+  });
+  const blob = new Blob([bytes], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  });
   const url = URL.createObjectURL(blob);
   const outputName = state.kpiFileName
-    ? state.kpiFileName.replace(/\.xlsx?$/i, '-GITUBGEN-V2.xlsx')
+    ? state.kpiFileName.replace(/\.xlsx?$/i, "-GITUBGEN-V2.xlsx")
     : generatedFileName(state.entries);
   await chrome.downloads.download({ url, filename: outputName, saveAs: true });
   setTimeout(() => URL.revokeObjectURL(url), 30_000);
-  showInfo(`${result.updated} row KPI dibuat/diisi; ${result.skipped || 0} row dilewati; ${result.review} perlu review.`);
+  showInfo(
+    `${result.updated} row KPI dibuat/diisi; ${result.skipped || 0} row dilewati; ${result.review} perlu review.`,
+  );
 }
 
-export function createWorkbookFromDsm(entries, scans) {
-  const dailyEntries = prepareDailyEntries(entries);
-  const headers = ['Assignee','Type','Ticket Title','Ticket URL','Type','Status','Priority','Date','Target Date','Week','Start Time','End Time','Hour'];
-  const rows = [];
-  const diagnostic = [['KPI Row','Assignee','Date','DSM Sessions','Occurrences','Ticket URL','Start Time','End Time','Hour','Rule','Start Source','Start Source Type','Start Evidence','End Source','End Source Type','End Evidence','Confidence','Needs Review']];
-  let review = 0;
-
-  dailyEntries.forEach((entry, index) => {
-    const decision = decideTimes(entry, scans);
-    if (!decision.start || !decision.end || decision.needsReview) review += 1;
-    rows.push([
-      displayAssignee(entry.assignee), systemType(entry.ticketTitle), entry.ticketTitle,
-      entry.ticketUrl, ticketType(entry.ticketTitle), entry.status, '', displayDate(entry.date),
-      displayDateOrBlank(targetDateForTicket(entry.ticketUrl, scans)), weekOfMonth(entry.date), decision.start ? formatDateTime(decision.start) : '',
-      decision.end ? formatDateTime(decision.end) : '',
-      decision.hours == null ? '' : Number(decision.hours.toFixed(2))
-    ]);
-    diagnostic.push([
-      index + 2, displayAssignee(entry.assignee), entry.date, (entry.sessions || []).join(', '),
-      entry.occurrences || 1, entry.ticketUrl,
-      decision.start ? formatDateTime(decision.start) : '', decision.end ? formatDateTime(decision.end) : '',
-      decision.hours == null ? '' : Number(decision.hours.toFixed(2)), decision.rule,
-      decision.startSource || '', decision.startSourceKind || '', decision.startEvidence || '',
-      decision.endSource || '', decision.endSourceKind || '', decision.endEvidence || '', decision.confidence,
-      decision.needsReview || !decision.end ? 'YES' : 'NO'
-    ]);
-  });
-
-  const workbook = XLSX.utils.book_new();
-  rows.sort((a,b)=>`${sortDateValue(a[7])}|${a[3]}`.localeCompare(`${sortDateValue(b[7])}|${b[3]}`));
-  const kpiSheet = XLSX.utils.aoa_to_sheet([headers, ...rows]);
-  styleKpiSheet(kpiSheet, rows.length);
-  XLSX.utils.book_append_sheet(workbook, kpiSheet, 'KPI');
-  const diagnosticSheet = XLSX.utils.aoa_to_sheet(diagnostic);
-  styleDiagnosticSheet(diagnosticSheet, diagnostic.length - 1);
-  XLSX.utils.book_append_sheet(workbook, diagnosticSheet, 'Diagnostic');
-  appendUniqueTicketsSheet(workbook, dailyEntries, scans);
-  return { workbook, updated: rows.length, skipped: 0, review };
+function selectedAssignees() {
+  return [...document.querySelectorAll('[name="assignee"]:checked')].map(
+    (input) => input.value,
+  );
 }
-
-function appendUniqueTicketsSheet(workbook, dailyEntries, scans) {
-  const groups = new Map();
-  for (const entry of dailyEntries) {
-    const key = `${normalizePerson(entry.assignee)}|${entry.ticketUrl}`;
-    groups.set(key, [...(groups.get(key) || []), entry]);
-  }
-  const headers = ['Assignee','Type','Ticket Title','Ticket URL','Status','Priority','Date','End Date','Week'];
-  const rows = [...groups.values()].map(group => {
-    const ordered=[...group].sort((a,b)=>a.date.localeCompare(b.date));
-    const first=ordered[0], latest=ordered.at(-1), period=uniqueTicketPeriod(ordered,scans);
-    const exactStarts=ordered.map(entry=>decideTimes(entry,scans).start).filter(Boolean).sort((a,b)=>new Date(a)-new Date(b));
-    const exactStartDate=exactStarts[0]?.slice(0,10) || period.startDate;
-    const githubStatus=latestGitHubStatus(first.ticketUrl,scans);
-    return [displayAssignee(first.assignee),systemType(first.ticketTitle),first.ticketTitle,first.ticketUrl,displayStatus(githubStatus || latest.status),'',displayDate(exactStartDate),period.endDate?displayDate(period.endDate):'',weekOfMonth(exactStartDate)];
-  }).sort((a,b)=>`${sortDateValue(a[6])}|${a[0]}|${a[3]}`.localeCompare(`${sortDateValue(b[6])}|${b[0]}|${b[3]}`));
-  const sheet=XLSX.utils.aoa_to_sheet([headers,...rows]);
-  sheet['!cols']=[14,14,58,58,20,12,14,14,12].map(wch=>({wch}));
-  sheet['!autofilter']={ref:`A1:I${Math.max(1,rows.length+1)}`};
-  for(let col=0;col<headers.length;col+=1){const cell=sheet[XLSX.utils.encode_cell({r:0,c:col})];if(cell)cell.s={font:{bold:true,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'548235'}},alignment:{horizontal:'center',vertical:'center'}};}
-  XLSX.utils.book_append_sheet(workbook,sheet,'Rekap Tiket Unik');
+function setBusy(busy) {
+  scanButton.disabled = busy;
+  scanButton.textContent = busy ? "Scanning..." : "Mulai scan GitHub";
 }
-
-export function fillWorkbook(workbook, entries, scans) {
-  const dailyEntries = prepareDailyEntries(entries);
-  const sheetName = workbook.SheetNames.find(name => /^kpi$/i.test(name)) || workbook.SheetNames[0];
-  let sheet = workbook.Sheets[sheetName];
-  let matrix = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: true });
-  const headerIndex = findHeaderRow(matrix);
-  if (headerIndex < 0) throw new Error('Header KPI tidak ditemukan.');
-  let headers = matrix[headerIndex].map(normalizeHeader);
-  if (!headers.includes('target date')) {
-    const dateIndex=findColumn(headers,['date','tanggal']);
-    const insertAt=dateIndex+1;
-    for(const row of matrix) row.splice(insertAt,0,'');
-    matrix[headerIndex][insertAt]='Target Date';
-    sheet=XLSX.utils.aoa_to_sheet(matrix);
-    workbook.Sheets[sheetName]=sheet;
-    styleKpiSheet(sheet,Math.max(0,matrix.length-headerIndex-1));
-    headers=matrix[headerIndex].map(normalizeHeader);
-  }
-  const cols = {
-    assignee: findColumn(headers, ['assignee', 'pic']),
-    url: findColumn(headers, ['ticket url', 'url']),
-    date: findColumn(headers, ['date', 'tanggal']),
-    targetDate: findColumn(headers, ['target date']),
-    start: findColumn(headers, ['start time', 'start']),
-    end: findColumn(headers, ['end time', 'end']),
-    hour: findColumn(headers, ['hour', 'hours', 'durasi'])
-  };
-  if ([cols.url, cols.date, cols.start, cols.end].some(index => index < 0)) throw new Error('Kolom Ticket URL, Date, Start Time, atau End Time tidak ditemukan.');
-
-  const diagnostic = [['KPI Row','Assignee','Date','Session','Ticket URL','Start Time','End Time','Hour','Rule','Start Source','Start Source Type','Start Evidence','End Source','End Source Type','End Evidence','Confidence','Needs Review']];
-  let updated = 0, skipped = 0, review = 0;
-
-  for (let rowIndex = headerIndex + 1; rowIndex < matrix.length; rowIndex += 1) {
-    const row = matrix[rowIndex];
-    const url = normalizeGitHubUrl(String(row[cols.url] || ''));
-    if (!url) continue;
-    if (cols.targetDate >= 0) {
-      const targetDate=targetDateForTicket(url,scans);
-      setCell(sheet,rowIndex,cols.targetDate,displayDateOrBlank(targetDate));
-    }
-    if (row[cols.start] || row[cols.end]) { skipped += 1; continue; }
-    const date = normalizeDate(row[cols.date]);
-    const assignee = normalizePerson(row[cols.assignee]);
-    const candidates = dailyEntries.filter(entry => entry.ticketUrl === url && entry.date === date && (!assignee || normalizePerson(entry.assignee) === assignee));
-    const entry = candidates[0];
-    if (!entry) { review += 1; continue; }
-    const decision = decideTimes(entry, scans);
-    if (!decision.start || !decision.end || decision.needsReview) review += 1;
-    if (decision.start) setCell(sheet, rowIndex, cols.start, formatDateTime(decision.start));
-    if (decision.end) setCell(sheet, rowIndex, cols.end, formatDateTime(decision.end));
-    if (decision.hours != null && cols.hour >= 0) setCell(sheet, rowIndex, cols.hour, Number(decision.hours.toFixed(2)), 'n');
-    updated += decision.start || decision.end ? 1 : 0;
-    diagnostic.push([
-      rowIndex + 1, entry.assignee, entry.date, entry.session, entry.ticketUrl,
-      decision.start ? formatDateTime(decision.start) : '', decision.end ? formatDateTime(decision.end) : '',
-      decision.hours == null ? '' : Number(decision.hours.toFixed(2)), decision.rule,
-      decision.startSource || '', decision.startSourceKind || '', decision.startEvidence || '',
-      decision.endSource || '', decision.endSourceKind || '', decision.endEvidence || '',
-      decision.confidence, decision.needsReview ? 'YES' : 'NO'
-    ]);
-  }
-
-  const diagnosticSheet = XLSX.utils.aoa_to_sheet(diagnostic);
-  diagnosticSheet['!cols'] = [8,16,12,10,55,20,20,10,30,48,18,55,48,18,55,12,14].map(wch => ({ wch }));
-  if (workbook.SheetNames.includes('Diagnostic')) delete workbook.Sheets.Diagnostic;
-  else workbook.SheetNames.push('Diagnostic');
-  workbook.Sheets.Diagnostic = diagnosticSheet;
-  if (workbook.SheetNames.includes('Rekap Tiket Unik')) {
-    delete workbook.Sheets['Rekap Tiket Unik'];
-    workbook.SheetNames = workbook.SheetNames.filter(name => name !== 'Rekap Tiket Unik');
-  }
-  appendUniqueTicketsSheet(workbook, dailyEntries, scans);
-  sortKpiSheetByDate(workbook.Sheets[sheetName]);
-  return { workbook, updated, skipped, review };
+function showError(text) {
+  message.style.color = "#cf222e";
+  message.textContent = text;
 }
-
-function findHeaderRow(matrix) {
-  return matrix.findIndex(row => {
-    const normalized = row.map(normalizeHeader);
-    return normalized.includes('ticket url') && normalized.some(cell => cell === 'start time');
-  });
+function showInfo(text) {
+  message.style.color = "#1a7f37";
+  message.textContent = text;
 }
-function findColumn(headers, names) { return headers.findIndex(header => names.includes(header)); }
-function normalizeHeader(value) { return String(value || '').trim().toLowerCase().replace(/\s+/g, ' '); }
-function normalizeDate(value) {
-  if (typeof value === 'number') {
-    const date = XLSX.SSF.parse_date_code(value);
-    return `${date.y}-${String(date.m).padStart(2,'0')}-${String(date.d).padStart(2,'0')}`;
-  }
-  const text = String(value || '').trim();
-  const parts = text.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})/);
-  if (parts) return `${parts[3]}-${parts[2].padStart(2,'0')}-${parts[1].padStart(2,'0')}`;
-  return text.slice(0, 10);
+function clearMessage() {
+  message.textContent = "";
 }
-function formatDateTime(iso) {
-  const parts = new Intl.DateTimeFormat('en-GB', {
-    timeZone: 'Asia/Jakarta', day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false
-  }).formatToParts(new Date(iso)).reduce((acc, item) => ({ ...acc, [item.type]: item.value }), {});
-  return `${parts.day}/${parts.month}/${parts.year} ${parts.hour}:${parts.minute}:${parts.second}`;
-}
-function setCell(sheet, zeroRow, zeroCol, value, type = 's') {
-  const address = XLSX.utils.encode_cell({ r: zeroRow, c: zeroCol });
-  const previous = sheet[address] || {};
-  sheet[address] = { ...previous, v: value, t: type };
-}
-function styleKpiSheet(sheet, rowCount) {
-  const widths = [14,14,58,58,14,20,12,14,14,12,22,22,12];
-  sheet['!cols'] = widths.map(wch => ({ wch }));
-  sheet['!autofilter'] = { ref: `A1:M${Math.max(1, rowCount + 1)}` };
-  const border = { top:{style:'thin',color:{rgb:'D0D7DE'}}, bottom:{style:'thin',color:{rgb:'D0D7DE'}}, left:{style:'thin',color:{rgb:'D0D7DE'}}, right:{style:'thin',color:{rgb:'D0D7DE'}} };
-  for (let col = 0; col < 13; col += 1) {
-    const cell = sheet[XLSX.utils.encode_cell({ r:0, c:col })];
-    if (cell) cell.s = { font:{bold:true,color:{rgb:'FFFFFF'}}, fill:{fgColor:{rgb:'1F4E78'}}, alignment:{horizontal:'center',vertical:'center'}, border };
-  }
-  for (let row = 1; row <= rowCount; row += 1) {
-    for (let col = 0; col < 13; col += 1) {
-      const address = XLSX.utils.encode_cell({ r:row, c:col });
-      const cell = sheet[address] || (sheet[address] = { t:'s', v:'' });
-      cell.s = { alignment:{vertical:'top',wrapText:true}, border, fill: row % 2 === 0 ? {fgColor:{rgb:'F7FAFC'}} : undefined };
-      if (col === 12 && cell.t === 'n') cell.z = '0.00';
-    }
-  }
-  sheet['!rows'] = [{ hpt:24 }, ...Array.from({length:rowCount}, () => ({ hpt:34 }))];
-}
-
-function prepareDailyEntries(entries) {
-  const rows=collapseDailyEntries(entries).sort((a,b)=>`${a.ticketUrl}|${a.date}`.localeCompare(`${b.ticketUrl}|${b.date}`));
-  const previousByUrl=new Map();
-  for(const row of rows){
-    const previous=previousByUrl.get(row.ticketUrl);
-    row.continuedFromPreviousDay=Boolean(
-      previous &&
-      normalizeStatusText(previous.status).startsWith('in progress') &&
-      isNextWorkday(previous.date,row.date)
-    );
-    previousByUrl.set(row.ticketUrl,row);
-  }
-  return rows.sort((a,b)=>`${a.date}|${a.ticketUrl}`.localeCompare(`${b.date}|${b.ticketUrl}`));
-}
-function normalizeStatusText(v=''){
-  const normalized=String(v).toLowerCase().replace(/[_-]+/g,' ').replace(/\s+/g,' ').trim();
-  return /^in\s*progress$/.test(normalized)?'in progress':normalized;
-}
-function displayDateOrBlank(value){return value?displayDate(value):'';}
-function sortDateValue(value){const p=String(value||'').match(/^(\d{2})\/(\d{2})\/(\d{4})$/);return p?`${p[3]}-${p[2]}-${p[1]}`:String(value||'');}
-function sortKpiSheetByDate(sheet){
-  const matrix=XLSX.utils.sheet_to_json(sheet,{header:1,defval:'',raw:true});
-  const headerIndex=findHeaderRow(matrix);if(headerIndex<0)return;
-  const headers=matrix[headerIndex].map(normalizeHeader),dateIndex=findColumn(headers,['date','tanggal']),urlIndex=findColumn(headers,['ticket url','url']);
-  const prefix=matrix.slice(0,headerIndex+1),body=matrix.slice(headerIndex+1).sort((a,b)=>`${sortDateValue(a[dateIndex])}|${a[urlIndex]}`.localeCompare(`${sortDateValue(b[dateIndex])}|${b[urlIndex]}`));
-  const replacement=XLSX.utils.aoa_to_sheet([...prefix,...body]);Object.keys(sheet).forEach(key=>delete sheet[key]);Object.assign(sheet,replacement);styleKpiSheet(sheet,body.length);
-}
-function styleDiagnosticSheet(sheet, rowCount) {
-  sheet['!cols'] = [9,14,13,20,12,58,22,22,10,30,48,18,55,48,18,55,12,14].map(wch => ({ wch }));
-  sheet['!autofilter'] = { ref: `A1:R${Math.max(1, rowCount + 1)}` };
-  for (let col = 0; col < 18; col += 1) {
-    const cell = sheet[XLSX.utils.encode_cell({r:0,c:col})];
-    if (cell) cell.s = {font:{bold:true,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'44546A'}},alignment:{horizontal:'center',vertical:'center'}};
-  }
-}
-function displayAssignee(value) {
-  return ({allief:'Allief',hizkia:'Hizkia',maulana:'Maulana',dwiki:'Dwiky'})[normalizePerson(value)] || value;
-}
-function displayStatus(value) {
-  const normalized=normalizeStatusText(value);
-  return ({todo:'Todo','in progress':'In Progress','ready to review':'Ready to Review',staging:'Staging',deployed:'Deployed'})[normalized] || value;
-}
-function displayDate(value) {
-  const [year, month, day] = String(value).split('-');
-  return year && month && day ? `${day}/${month}/${year}` : value;
-}
-function generatedFileName(entries) {
-  const date = collapseDailyEntries(entries)[0]?.date || '';
-  const [year, month] = date.split('-');
-  const months = { '01':'Januari','02':'Februari','03':'Maret','04':'April','05':'Mei','06':'Juni','07':'Juli','08':'Agustus','09':'September','10':'Oktober','11':'November','12':'Desember' };
-  return `KPI-${months[month] || month || 'Export'}-${year || 'Data'}-GITUBGEN-V2.xlsx`;
-}
-function selectedAssignees() { return [...document.querySelectorAll('[name="assignee"]:checked')].map(input => input.value); }
-function setBusy(busy) { scanButton.disabled = busy; scanButton.textContent = busy ? 'Scanning...' : 'Mulai scan GitHub'; }
-function showError(text) { message.style.color = '#cf222e'; message.textContent = text; }
-function showInfo(text) { message.style.color = '#1a7f37'; message.textContent = text; }
-function clearMessage() { message.textContent = ''; }
 function refreshExportState() {
-  exportButton.classList.toggle('hidden', !(state.entries.length && state.job?.status === 'completed'));
+  exportButton.classList.toggle(
+    "hidden",
+    !(
+      state.entries.length &&
+      state.job?.status === "completed" &&
+      state.job.inputContext === inputContext(state.entries) &&
+      state.job.maxDepth === Number($("#depth").value)
+    ),
+  );
 }
-async function restoreJob() { const job = await chrome.runtime.sendMessage({ type: 'GET_JOB' }); if (job) updateJob(job); }
+async function restoreJob() {
+  const job = await chrome.runtime.sendMessage({ type: "GET_JOB" });
+  if (job) updateJob(job);
+}
 async function resetJob() {
-  await chrome.runtime.sendMessage({ type: 'CLEAR_JOB' });
+  const cleared = await chrome.runtime.sendMessage({ type: "CLEAR_JOB" });
+  if (!cleared?.ok) return showError(cleared?.error || "Tidak dapat reset.");
   state.job = null;
-  $('#progressWrap').classList.add('hidden'); $('#summary').classList.add('hidden'); $('#previewCard').classList.add('hidden'); exportButton.classList.add('hidden');
-  showInfo('Checkpoint dihapus.');
+  $("#progressWrap").classList.add("hidden");
+  $("#summary").classList.add("hidden");
+  $("#previewCard").classList.add("hidden");
+  exportButton.classList.add("hidden");
+  showInfo("Checkpoint dihapus.");
+}
+
+async function reviewChanges(changes) {
+  const dialog = $("#changesDialog"),
+    body = $("#changesBody");
+  body.replaceChildren();
+  const grouped = new Map();
+  for (const c of changes) grouped.set(c.id, [...(grouped.get(c.id) || []), c]);
+  for (const [id, items] of grouped) {
+    const tr = document.createElement("tr"),
+      td = document.createElement("td"),
+      check = document.createElement("input");
+    check.type = "checkbox";
+    check.checked = true;
+    check.value = id;
+    td.appendChild(check);
+    tr.appendChild(td);
+    for (const text of [
+      items[0].row,
+      items
+        .map(
+          (c) =>
+            `${c.field}: ${c.before === "" ? "(kosong)" : c.before} → ${c.after}`,
+        )
+        .join("\n"),
+    ]) {
+      const cell = document.createElement("td");
+      cell.textContent = text;
+      cell.style.whiteSpace = "pre-wrap";
+      tr.appendChild(cell);
+    }
+    body.appendChild(tr);
+  }
+  return new Promise((resolve) => {
+    dialog.onclose = () =>
+      resolve(
+        dialog.returnValue === "apply"
+          ? [...body.querySelectorAll("input:checked")].map((i) => i.value)
+          : null,
+      );
+    dialog.showModal();
+  });
 }

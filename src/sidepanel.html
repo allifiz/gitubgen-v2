@@ -1,84 +1,186 @@
 <!doctype html>
 <html lang="id">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>GitubGen V2</title>
-  <link rel="stylesheet" href="sidepanel.css">
-</head>
-<body>
-  <header>
-    <div class="logo">G2</div>
-    <div><h1>GitubGen V2</h1><p>KPI Extractor · Chrome & Edge</p></div>
-  </header>
-
-  <main>
-    <section class="card">
-      <h2>1. Sumber data</h2>
-      <label class="file">DSM Markdown/Text<input id="dsmFile" type="file" accept=".md,.txt"></label>
-      <label class="file">KPI Excel <small>(opsional)</small><input id="kpiFile" type="file" accept=".xlsx,.xls"></label>
-      <p class="hint">Tanpa Excel, extension membuat workbook KPI baru dari DSM.</p>
-    </section>
-
-    <section class="card">
-      <h2>2. Assignee</h2>
-      <div class="checks">
-        <label><input type="checkbox" name="assignee" value="hizkia" checked> Hizkia</label>
-        <label><input type="checkbox" name="assignee" value="maulana" checked> Maulana</label>
-        <label><input type="checkbox" name="assignee" value="dwiki" checked> Dwiki</label>
-        <label><input type="checkbox" name="assignee" value="allief"> Allief</label>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>GitubGen V2</title>
+    <link rel="stylesheet" href="sidepanel.css" />
+  </head>
+  <body>
+    <header>
+      <div class="logo">G2</div>
+      <div>
+        <h1>GitubGen V2</h1>
+        <p>KPI Extractor · Chrome & Edge</p>
       </div>
-      <label>Batas penelusuran
-        <select id="depth"><option value="0">Parent saja</option><option value="1" selected>Parent + link/sub-issue</option></select>
-      </label>
-      <label class="token-label">GitHub token (read-only)
-        <input id="githubToken" type="password" autocomplete="off" placeholder="github_pat_... atau ghp_...">
-      </label>
-      <p class="hint">Dipakai langsung ke GraphQL dan hanya berada selama proses scan. Scope: repo, read:org, read:project.</p>
-      <label>Recorder URL <small>(opsional)</small>
-        <input id="recorderUrl" type="url" value="https://gitubgen-recorder.vercel.app" placeholder="https://gitubgen-recorder.vercel.app">
-      </label>
-      <label class="token-label">Recorder API secret <small>(opsional)</small>
-        <input id="recorderSecret" type="password" autocomplete="off" placeholder="API secret">
-      </label>
-      <p class="hint">Recorder mengisi riwayat status yang hilang dari Activity GitHub. Token disimpan hanya selama sesi browser agar tidak hilang saat side panel ditutup.</p>
-    </section>
+    </header>
 
-    <section class="card">
-      <h2>3. Proses</h2>
-      <button id="scan" class="primary">Mulai scan GitHub</button>
-      <div id="progressWrap" class="progress-wrap hidden">
-        <div class="progress"><span id="progressBar"></span></div>
-        <p id="progressText">Menyiapkan...</p>
-      </div>
-      <div id="summary" class="summary hidden"></div>
-      <button id="export" class="success hidden">Download Excel</button>
-      <button id="reset" class="ghost">Reset checkpoint</button>
-    </section>
+    <main>
+      <section class="card">
+        <h2>1. Sumber data</h2>
+        <label class="file"
+          >DSM Markdown/Text<input id="dsmFile" type="file" accept=".md,.txt"
+        /></label>
+        <label class="file"
+          >KPI Excel <small>(opsional)</small
+          ><input id="kpiFile" type="file" accept=".xlsx,.xls"
+        /></label>
+        <p class="hint">
+          Tanpa Excel, extension membuat workbook KPI baru dari DSM.
+        </p>
+      </section>
 
-    <section id="previewCard" class="card preview-card hidden">
-      <div class="preview-heading">
-        <h2>4. Preview KPI</h2>
-        <span id="previewCount" class="badge"></span>
-      </div>
-      <p class="hint">Periksa hasil scan sebelum mengunduh Excel. Geser tabel ke samping untuk melihat semua kolom.</p>
-      <div class="table-wrap">
-        <table id="previewTable">
-          <thead><tr>
-            <th>Assignee</th><th>Tanggal</th><th>Tiket</th><th>Status</th><th>Start</th><th>End</th><th>Jam</th><th>Rule</th><th>Review</th>
-          </tr></thead>
-          <tbody></tbody>
-        </table>
-      </div>
-    </section>
+      <section class="card">
+        <h2>2. Assignee</h2>
+        <div class="checks">
+          <label
+            ><input type="checkbox" name="assignee" value="hizkia" checked />
+            Hizkia</label
+          >
+          <label
+            ><input type="checkbox" name="assignee" value="maulana" checked />
+            Maulana</label
+          >
+          <label
+            ><input type="checkbox" name="assignee" value="dwiki" checked />
+            Dwiki</label
+          >
+          <label
+            ><input type="checkbox" name="assignee" value="allief" />
+            Allief</label
+          >
+        </div>
+        <label
+          >Batas penelusuran
+          <select id="depth">
+            <option value="0">Parent saja</option>
+            <option value="3" selected>Parent + link/sub-issue</option>
+          </select>
+        </label>
+        <label class="token-label"
+          >GitHub token (read-only)
+          <input
+            id="githubToken"
+            type="password"
+            autocomplete="off"
+            placeholder="github_pat_... atau ghp_..."
+          />
+        </label>
+        <p class="hint">
+          Dipakai langsung ke GraphQL dan hanya berada selama proses scan.
+          Scope: repo, read:org, read:project.
+        </p>
+        <label
+          >Recorder URL <small>(opsional)</small>
+          <input
+            id="recorderUrl"
+            type="url"
+            value="https://gitubgen-recorder.vercel.app"
+            placeholder="https://gitubgen-recorder.vercel.app"
+          />
+        </label>
+        <label class="token-label"
+          >Recorder API secret <small>(opsional)</small>
+          <input
+            id="recorderSecret"
+            type="password"
+            autocomplete="off"
+            placeholder="API secret"
+          />
+        </label>
+        <p class="hint">
+          Recorder mengisi riwayat status yang hilang dari Activity GitHub.
+          Token disimpan hanya selama sesi browser agar tidak hilang saat side
+          panel ditutup.
+        </p>
+      </section>
 
-    <section class="card note">
-      <h2>Aturan KPI</h2>
-      <p><b>Prioritas:</b> riwayat GitubGen Recorder dan GraphQL pada parent, lalu activity PR/commit untuk End Time.</p>
-      <p>Jika status history hilang, gunakan komentar yang isinya persis <code>/start</code> atau <code>/end</code>. Jam DSM tidak dipakai sebagai fallback Start.</p>
-    </section>
-    <p id="message" class="message"></p>
-  </main>
-  <script src="sidepanel.js"></script>
-</body>
+      <section class="card">
+        <h2>3. Proses</h2>
+        <button id="scan" class="primary">Mulai scan GitHub</button>
+        <div id="progressWrap" class="progress-wrap hidden">
+          <div class="progress"><span id="progressBar"></span></div>
+          <p id="progressText">Menyiapkan...</p>
+        </div>
+        <div id="summary" class="summary hidden"></div>
+        <label
+          >Impor Excel
+          <select id="importMode">
+            <option value="fill">Isi field kosong</option>
+            <option value="reconcile">
+              Rekonsiliasi nilai lama (review dahulu)
+            </option>
+          </select></label
+        ><button id="export" class="success hidden">Download Excel</button>
+        <button id="reset" class="ghost">Reset checkpoint</button>
+      </section>
+
+      <section id="previewCard" class="card preview-card hidden">
+        <div class="preview-heading">
+          <h2>4. Preview KPI</h2>
+          <span id="previewCount" class="badge"></span>
+        </div>
+        <p class="hint">
+          Periksa hasil scan sebelum mengunduh Excel. Geser tabel ke samping
+          untuk melihat semua kolom.
+        </p>
+        <div class="table-wrap">
+          <table id="previewTable">
+            <thead>
+              <tr>
+                <th>Assignee</th>
+                <th>Tanggal</th>
+                <th>Tiket</th>
+                <th>Status</th>
+                <th>Start</th>
+                <th>End</th>
+                <th>Jam</th>
+                <th>Rule</th>
+                <th>Review</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="card note">
+        <h2>Aturan KPI</h2>
+        <p>
+          <b>Prioritas:</b> riwayat GitubGen Recorder dan GraphQL pada parent,
+          lalu activity PR/commit untuk End Time.
+        </p>
+        <p>
+          Jika status history hilang, gunakan komentar yang isinya persis
+          <code>/start</code> atau <code>/end</code>. Jam DSM tidak dipakai
+          sebagai fallback Start.
+        </p>
+      </section>
+      <p id="message" class="message"></p>
+    </main>
+    <script src="sidepanel.js"></script>
+    <dialog id="changesDialog">
+      <form method="dialog">
+        <h3>Review perubahan Excel</h3>
+        <p>
+          Pilih baris yang ingin diterapkan. Baris berlabel Manual/Locked dan
+          sel formula dilindungi. Urutan KPI impor dipertahankan.
+        </p>
+        <div style="max-height: 60vh; overflow: auto">
+          <table>
+            <thead>
+              <tr>
+                <th>Pakai</th>
+                <th>Baris KPI</th>
+                <th>Sebelum → Sesudah</th>
+              </tr>
+            </thead>
+            <tbody id="changesBody"></tbody>
+          </table>
+        </div>
+        <button value="cancel">Batal</button
+        ><button value="apply">Terapkan dan unduh salinan</button>
+      </form>
+    </dialog>
+  </body>
 </html>

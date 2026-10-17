@@ -3,6 +3,8 @@ const CANONICAL = new Map([
   ['allief', 'allief'],
   ['hizkia', 'hizkia'],
   ['maulana', 'maulana'],
+  ['maslanadev', 'maulana'],
+  ['dwikyananditya', 'dwiki'],
   ['dwiki', 'dwiki'],
   ['dwiky', 'dwiki']
 ]);

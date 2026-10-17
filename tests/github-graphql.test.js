@@ -32,7 +32,7 @@ test('GraphQL menormalisasi sub-issue, PR, comment, commit, review, merge, dan T
     title: 'Parent', url: issueUrl,
     comments: { nodes: [{ createdAt: '2026-09-08T03:00:00Z', author: { login: 'allif' } }] },
     trackedIssues: { nodes: [{ url: 'https://github.com/GO-Bimbel/api/issues/12' }] },
-    projectItems: { nodes: [{ fieldValues: { nodes: [{ date: '2026-09-09', field: { name: 'Target Date' } }] } }] },
+    projectItems: { nodes: [{ project:{number:11},fieldValues: { nodes: [{ date: '2026-09-09', field: { name: 'Target Date' } }] } }] },
     timelineItems: { nodes: [{
       __typename: 'CrossReferencedEvent', createdAt: '2026-09-08T04:00:00Z', actor: { login: 'allif' },
       source: { url: pullUrl, title: 'Implementation' }
@@ -41,9 +41,10 @@ test('GraphQL menormalisasi sub-issue, PR, comment, commit, review, merge, dan T
   const scan = normalizeActivity(payload, issueUrl);
   assert.equal(scan.activitySource, 'graphql');
   assert.equal(scan.targetDate, '2026-09-09');
-  assert.deepEqual(scan.linkedUrls, ['https://github.com/GO-Bimbel/api/issues/12', pullUrl]);
+  assert.deepEqual(scan.linkedUrls, ['https://github.com/GO-Bimbel/api/issues/12']);
+  assert.ok(scan.relationships.some(r=>r.url===pullUrl&&r.type==='mention'));
   assert.ok(scan.events.some(event => event.type === 'comment'));
-  assert.ok(scan.events.some(event => event.type === 'pull_request'));
+  assert.ok(scan.events.some(event => event.type === 'relationship'));
 });
 
 test('GraphQL PR menghasilkan aktivitas kerja lengkap untuk End Time', () => {
@@ -57,7 +58,7 @@ test('GraphQL PR menghasilkan aktivitas kerja lengkap untuk End Time', () => {
     projectItems: { nodes: [] }, timelineItems: { nodes: [] }
   } } } };
   const scan = normalizeActivity(payload, url);
-  assert.deepEqual(scan.events.map(event => event.type), ['pull_request', 'commit', 'comment', 'review', 'pull_request']);
+  assert.deepEqual(scan.events.map(event => event.type), ['pull_request', 'commit', 'comment', 'review', 'merge']);
   assert.match(scan.events.at(-1).text, /merged pull request/);
 });
 
@@ -90,8 +91,8 @@ test('partial GraphQL tetap memakai komentar ketika scope Project V2 ditolak', a
   assert.deepEqual(variablesSeen[0], {
     owner: 'GO-Bimbel', repo: 'api', number: 99, isIssue: true, isPullRequest: false
   });
-  assert.match(queries[0], /issue\(number: \$number\) @include\(if: \$isIssue\)/);
-  assert.match(queries[0], /pullRequest\(number: \$number\) @include\(if: \$isPullRequest\)/);
+  assert.match(queries[0], /issue\(number:\s*\$number\) @include\(if:\s*\$isIssue\)/);
+  assert.match(queries[0], /pullRequest\(number:\s*\$number\) @include\(if:\s*\$isPullRequest\)/);
   assert.equal(scan.activitySource, 'graphql-partial');
   assert.equal(scan.events.length, 2);
   assert.deepEqual(scan.events.map(event => event.body), ['/start', '/end']);

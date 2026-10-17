@@ -10,9 +10,10 @@ test('status pair parent menjadi prioritas dan jam efektif dipakai', () => {
       {datetime:'2026-09-08T04:00:00Z',type:'status',text:'changed status to Ready to Review'}
     ]}
   });
-  assert.equal(result.rule,'PARENT_START_MATCHED_END');
+  assert.equal(result.rule,'STATUS_INTERVALS');
   assert.equal(result.hours,1.75);
-  assert.equal(result.confidence,'HIGH');
+  assert.equal(result.confidence,'MEDIUM');
+  assert.ok(result.flags.includes('RELATED_EVIDENCE_NOT_COLLECTED'));
 });
 
 test('In Progress linked diabaikan untuk start tetapi PR linked tetap menjadi end', () => {
@@ -25,7 +26,7 @@ test('In Progress linked diabaikan untuk start tetapi PR linked tetap menjadi en
       {datetime:'2026-09-08T08:30:00Z',type:'pull_request',text:'opened pull request for review'}
     ]}
   });
-  assert.equal(result.rule,'NEEDS_REVIEW_NO_VALID_START');
+  assert.equal(result.rule,'MISSING_START');
   assert.equal(result.start,null);
   assert.equal(result.endSource,child);
   assert.equal(result.startEvidence,'');
@@ -39,10 +40,10 @@ test('Todo diabaikan dan tidak ada lagi fallback Start dari DSM', () => {
       {datetime:'2026-09-02T09:42:10Z',type:'status',text:'moved this from Todo to Ready to Review in BE-TASK'}
     ]}
   });
-  assert.equal(result.rule,'NEEDS_REVIEW_NO_VALID_START');
+  assert.equal(result.rule,'MISSING_START');
   assert.equal(result.start,null);
   assert.equal(result.end,'2026-09-02T09:42:10Z');
-  assert.equal(result.hours,0);
+  assert.equal(result.hours,null);
   assert.equal(result.startEvidence,'');
 });
 
@@ -66,7 +67,7 @@ test('tidak memakai mention atau assign sebagai end', () => {
       {datetime:'2026-09-03T04:00:00Z',type:'activity',text:'assigned allifgobimbel'}
     ]}
   });
-  assert.equal(result.rule,'NEEDS_REVIEW_NO_VALID_END');
+  assert.equal(result.rule,'MISSING_START');
   assert.equal(result.end,null);
 });
 
@@ -83,7 +84,7 @@ test('PR linked pada parent adalah end valid bila status target tidak tercatat',
   assert.equal(result.endSourceKind,'parent');
 });
 
-test('comment dan review GraphQL merupakan bukti End Time', () => {
+test('komentar reviewer dan review bukan completion pekerjaan', () => {
   const url='https://github.com/GO-Bimbel/api/issues/1';
   const pr='https://github.com/GO-Bimbel/api/pull/2';
   const result=decideTimes({ticketUrl:url,date:'2026-09-08',session:'11:00',status:'ready to review'}, {
@@ -93,8 +94,8 @@ test('comment dan review GraphQL merupakan bukti End Time', () => {
       {datetime:'2026-09-08T06:00:00Z',type:'review',text:'reviewer submitted approved review'}
     ]}
   });
-  assert.equal(result.end,'2026-09-08T06:00:00Z');
-  assert.equal(result.endSource,pr);
+  assert.equal(result.end,null);
+  assert.equal(result.hours,null);
 });
 
 test('komentar start dan end menjadi fallback waktu saat status history hilang', () => {
@@ -105,7 +106,7 @@ test('komentar start dan end menjadi fallback waktu saat status history hilang',
       {datetime:'2026-10-08T07:45:00Z',type:'comment',body:'/end',text:'allif commented on issue: /end'}
     ]}
   });
-  assert.equal(result.rule,'COMMENT_START_MATCHED_END');
+  assert.equal(result.rule,'STATUS_INTERVALS');
   assert.equal(result.start,'2026-10-08T02:15:00Z');
   assert.equal(result.end,'2026-10-08T07:45:00Z');
   assert.match(result.endEvidence,/end/i);
@@ -120,7 +121,7 @@ test('komentar biasa bukan marker start atau end', () => {
       {datetime:'2026-10-08T07:45:00Z',type:'comment',body:'sudah selesai',text:'allif commented on issue: sudah selesai'}
     ]}
   });
-  assert.equal(result.rule,'NEEDS_REVIEW_NO_VALID_END');
+  assert.equal(result.rule,'MISSING_START');
   assert.equal(result.start,null);
   assert.equal(result.end,null);
 });
@@ -135,7 +136,7 @@ test('komentar start dan end tanpa slash tidak lagi dianggap marker', () => {
   });
   assert.equal(result.start,null);
   assert.equal(result.end,null);
-  assert.equal(result.rule,'NEEDS_REVIEW_NO_VALID_END');
+  assert.equal(result.rule,'MISSING_START');
 });
 
 test('kata /start atau /end di dalam kalimat tidak dianggap marker', () => {
@@ -148,7 +149,7 @@ test('kata /start atau /end di dalam kalimat tidak dianggap marker', () => {
   });
   assert.equal(result.start,null);
   assert.equal(result.end,null);
-  assert.equal(result.rule,'NEEDS_REVIEW_NO_VALID_END');
+  assert.equal(result.rule,'MISSING_START');
 });
 
 test('marker menerima perbedaan kapital dan spasi tepi saja', () => {
@@ -168,13 +169,13 @@ test('durasi beberapa detik tetap valid dan tidak dipanjangkan', () => {
   const result=decideTimes({ticketUrl:url,date:'2026-09-30',session:'11:00',status:'deployed'}, {
     [url]:{url,linkedUrls:[],events:[
       {datetime:'2026-09-30T04:56:35Z',type:'status',text:'HadiGODev moved this to In Progress in BE-TASK'},
-      {datetime:'2026-09-30T04:56:40Z',type:'pull_request',text:'allifgobimbel linked a pull request that will close this issue #2880'}
+      {datetime:'2026-09-30T04:56:40Z',type:'status',status:'Ready to Review',text:'moved this to Ready to Review'}
     ]}
   });
   assert.equal(result.start,'2026-09-30T04:56:35Z');
   assert.equal(result.end,'2026-09-30T04:56:40Z');
   assert.ok(result.hours > 0 && result.hours < 0.01);
-  assert.equal(result.needsReview,false);
+  assert.equal(result.needsReview,true);
 });
 
 test('In Progress memakai aktivitas kerja terakhir pada hari yang sama sebagai titik akhir', () => {
@@ -196,7 +197,7 @@ test('In Progress pada DSM 16 berakhir pada jam pulang kerja', () => {
   const result=decideTimes({ticketUrl:url,date:'2026-09-08',session:'16:00',sessions:['16:00'],status:'In Progress'}, {
     [url]:{url,linkedUrls:[],events:[{datetime:'2026-09-08T07:00:00Z',type:'status',text:'moved this to In Progress'}]}
   });
-  assert.equal(result.rule,'IN_PROGRESS_UNTIL_WORKDAY_END');
+  assert.equal(result.rule,'STATUS_INTERVALS');
   assert.match(result.end,/2026-09-08T17:00:00\+07:00/);
 });
 
@@ -207,7 +208,7 @@ test('status inprogress tanpa spasi tetap dikenali', () => {
       {datetime:'2026-10-08T04:00:00Z',type:'comment',body:'/start',text:'allif commented on issue: /start'}
     ]}
   });
-  assert.equal(result.rule,'IN_PROGRESS_UNTIL_WORKDAY_END');
+  assert.equal(result.rule,'STATUS_INTERVALS');
   assert.equal(result.start,'2026-10-08T04:00:00Z');
   assert.equal(result.end,'2026-10-08T17:00:00+07:00');
 });
@@ -238,16 +239,16 @@ test('komentar end mengalahkan jam pulang untuk In Progress DSM 16', () => {
   });
   assert.equal(result.start,'2026-09-08T07:00:00Z');
   assert.equal(result.end,'2026-09-08T09:15:00Z');
-  assert.equal(result.rule,'COMMENT_START_MATCHED_END');
+  assert.equal(result.rule,'STATUS_INTERVALS');
 });
 
-test('lanjutan tiket hari berikutnya dimulai tepat pukul 09.00', () => {
+test('flag DSM lanjutan saja tidak mengarang waktu tanpa history', () => {
   const url='https://github.com/GO-Bimbel/service/issues/9';
   const result=decideTimes({ticketUrl:url,date:'2026-09-09',session:'16:00',sessions:['16:00'],status:'In Progress',continuedFromPreviousDay:true}, {
     [url]:{url,linkedUrls:[],events:[]}
   });
-  assert.match(result.start,/2026-09-09T09:00:00\+07:00/);
-  assert.match(result.end,/2026-09-09T17:00:00\+07:00/);
+  assert.equal(result.start,null);
+  assert.equal(result.end,null);
 });
 
 test('In Progress pada DSM 16 hari Sabtu berakhir pukul 16.00', () => {
@@ -299,8 +300,8 @@ test('Todo tidak pernah dipakai sebagai start dan tanpa fallback DSM', () => {
     ]}
   });
   assert.equal(result.start,null);
-  assert.equal(result.end,'2026-09-22T17:00:00+07:00');
-  assert.equal(result.hours,0);
+  assert.equal(result.end,null);
+  assert.equal(result.hours,null);
   assert.equal(result.needsReview,true);
 });
 

@@ -1,183 +1,244 @@
-import { fetchActivity } from './lib/github-graphql.js';
-import { fetchRecorderHistory } from './lib/recorder-api.js';
-
-const STORAGE_KEY = 'gitubgenJob';
-const SCAN_CONCURRENCY = 5;
+import { fetchActivity } from "./lib/github-graphql.js";
+import { fetchRecorderHistory } from "./lib/recorder-api.js";
+import { reconcileEvents, RULE_VERSION } from "./lib/activity-matcher.js";
+import { jobFingerprint } from "./lib/job.js";
+const STORAGE_KEY = "gitubgenJob",
+  CONCURRENCY = 4,
+  MAX_NODES = 1500;
 let running = false;
-
-chrome.runtime.onInstalled.addListener(() => {
-  chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
-});
-
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (message.type === 'START_SCAN') {
+chrome.runtime.onInstalled.addListener(() =>
+  chrome.sidePanel
+    .setPanelBehavior({ openPanelOnActionClick: true })
+    .catch(() => {}),
+);
+chrome.runtime.onMessage.addListener((m, _s, reply) => {
+  if (m.type === "START_SCAN") {
     if (running) {
-      sendResponse({ ok: false, error: 'Scan masih berjalan.' });
-      return undefined;
+      reply({ ok: false, error: "Scan masih berjalan." });
+      return;
     }
-    startScan(message.items, message.maxDepth ?? 1, message.githubToken, message.recorder).catch(() => {});
-    sendResponse({ ok: true });
-    return undefined;
+    startScan(
+      m.items,
+      m.maxDepth ?? 3,
+      m.githubToken,
+      m.recorder,
+      m.inputContext,
+    ).catch(() => {});
+    reply({ ok: true });
+    return;
   }
-  if (message.type === 'GET_JOB') {
-    chrome.storage.local.get(STORAGE_KEY).then(data => sendResponse(data[STORAGE_KEY] || null));
+  if (m.type === "GET_JOB") {
+    chrome.storage.local
+      .get(STORAGE_KEY)
+      .then((data) => reply(data[STORAGE_KEY] || null));
     return true;
   }
-  if (message.type === 'CLEAR_JOB') {
-    chrome.storage.local.remove(STORAGE_KEY).then(() => sendResponse({ ok: true }));
+  if (m.type === "CLEAR_JOB") {
+    if (running) {
+      reply({ ok: false, error: "Tunggu scan selesai sebelum reset." });
+      return;
+    }
+    chrome.storage.local.remove(STORAGE_KEY).then(() => reply({ ok: true }));
     return true;
   }
-  return undefined;
 });
-
-async function startScan(inputItems, maxDepth, githubToken, recorder) {
-  if (running) throw new Error('Scan masih berjalan.');
-  if (!githubToken) throw new Error('Token GitHub wajib diisi untuk membaca GraphQL.');
+export async function startScan(
+  inputItems,
+  maxDepth,
+  githubToken,
+  recorder,
+  inputContext = "",
+) {
+  if (running) throw new Error("Scan masih berjalan.");
   running = true;
+  let job;
   try {
+    const inputs = mergeInputItems(inputItems),
+      depth = Math.max(0, Math.min(3, maxDepth)),
+      fingerprint = jobFingerprint({
+        inputs,
+        maxDepth: depth,
+        inputContext,
+        ruleVersion: RULE_VERSION,
+        projectNumber: 11,
+        recorderUrl: recorder?.url || "",
+      });
     const previous = (await chrome.storage.local.get(STORAGE_KEY))[STORAGE_KEY];
-    const job = previous?.status === 'paused'
-      ? previous
-      : {
-          status: 'running',
-          queue: mergeInputItems(inputItems).map(item => ({ ...item, depth: 0 })),
-          scans: {}, errors: [], processed: 0, total: mergeInputItems(inputItems).length,
-          warnings: [],
-          startedAt: new Date().toISOString(), maxDepth
-        };
-    job.status = 'running';
-
-    if (recorder?.url && recorder?.secret) {
-      try {
-        const recorderEvents = await fetchRecorderHistory(
-          recorder,
-          mergeInputItems(inputItems).map(item => item.url),
-          recorderRange(inputItems)
-        );
-        for (const [url, events] of Object.entries(recorderEvents)) {
-          job.recorderEvents ||= {};
-          job.recorderEvents[url] = events;
-        }
-        job.recorderConnected = true;
-        delete job.recorderError;
-      } catch (error) {
-        job.recorderConnected = false;
-        job.recorderError = error.message;
-      }
-    }
-
+    job =
+      previous?.fingerprint === fingerprint &&
+      ["paused", "running"].includes(previous.status)
+        ? previous
+        : {
+            status: "running",
+            queue: inputs.map((i) => ({ ...i, depth: 0 })),
+            scans: {},
+            errors: [],
+            warnings: [],
+            processed: 0,
+            total: inputs.length,
+            startedAt: new Date().toISOString(),
+            maxDepth: depth,
+            fingerprint,
+            inputs,
+            inputContext,
+            ruleVersion: RULE_VERSION,
+          };
+    job.queue = mergeInputItems([...(job.inFlight || []), ...job.queue])
+      .map((i) => ({
+        ...i,
+        depth: Math.min(
+          ...[...(job.inFlight || []), ...job.queue]
+            .filter((q) => q.url === i.url)
+            .map((q) => q.depth),
+        ),
+      }))
+      .filter((i) => !job.scans[i.url]);
+    job.inFlight = [];
+    job.status = "running";
+    delete job.fatalError;
+    await saveAndNotify(job);
     while (job.queue.length) {
-      const batch = job.queue.splice(0, SCAN_CONCURRENCY).filter(item => !job.scans[item.url]);
+      const batch = job.queue
+        .splice(0, CONCURRENCY)
+        .filter((i) => !job.scans[i.url]);
       if (!batch.length) continue;
-      const batchUrls = new Set(batch.map(item => item.url));
-      const results = await Promise.all(batch.map(async item => {
+      job.inFlight = batch;
+      await saveAndNotify(job);
+      let history = {};
+      let recorderError = null;
+      if (recorder?.url && recorder?.secret) {
         try {
-          return { item, scan: await scanUrl(item.url, githubToken) };
-        } catch (error) {
-          return { item, error };
+          history = await fetchRecorderHistory(
+            recorder,
+            batch.map((i) => i.url),
+            recorderRange(inputs),
+          );
+          job.recorderConnected = true;
+          job.recorderCoverage = history.coverage;
+        } catch (e) {
+          recorderError = e.message;
+          job.recorderError = e.message;
         }
-      }));
-      for (const { item, scan, error } of results) {
-        if (error) {
-          job.errors.push({ url: item.url, error: error.message });
-          job.processed += 1;
-          continue;
-        }
-        job.scans[item.url] = mergeRecorderEvents(scan, job.recorderEvents?.[item.url]);
-        for (const warning of scan.warnings || []) {
-          job.warnings ||= [];
-          job.warnings.push({ url: item.url, warning });
-        }
-        if (item.depth < maxDepth && needsRelatedScan(job.scans[item.url], item.targets)) {
-          for (const linkedUrl of scan.linkedUrls || []) {
-            if (!job.scans[linkedUrl] && !batchUrls.has(linkedUrl) && !job.queue.some(q => q.url === linkedUrl)) {
-              job.queue.push({ url: linkedUrl, dates: item.dates, targets: item.targets, depth: item.depth + 1 });
-              job.total += 1;
-            }
-          }
-        }
-        job.processed += 1;
       }
+      const results = await Promise.all(
+        batch.map(async (item) => {
+          let scan, error;
+          try {
+            scan = await fetchActivity(item.url, githubToken, fetch, {
+              budget: (job.requestBudget ||= { used: 0, limit: 1200 }),
+            });
+          } catch (e) {
+            error = e.message;
+          }
+          if (!scan)
+            scan = {
+              url: item.url,
+              title: "",
+              events: [],
+              linkedUrls: [],
+              relationships: [],
+              warnings: [error],
+              coverage: { complete: false, core: false, project: false },
+            };
+          scan.events = reconcileEvents([
+            ...(scan.events || []),
+            ...(history[item.url] || []),
+          ]);
+          scan.sourceCoverage = {
+            github: !error,
+            recorder: !!history[item.url],
+            recorderError,
+          };
+          return { item, scan, error };
+        }),
+      );
+      for (const { item, scan, error } of results) {
+        job.scans[item.url] = scan;
+        if (error) job.errors.push({ url: item.url, error });
+        for (const warning of scan.warnings || [])
+          job.warnings.push({ url: item.url, warning });
+        if (item.depth < job.maxDepth)
+          for (const url of scan.linkedUrls || []) {
+            if (job.scans[url] || batch.some((i) => i.url === url)) continue;
+            const queued = job.queue.find((i) => i.url === url);
+            if (queued) {
+              queued.dates = [...new Set([...queued.dates, ...item.dates])];
+              for (const [date, statuses] of Object.entries(item.targets))
+                queued.targets[date] = [
+                  ...new Set([...(queued.targets[date] || []), ...statuses]),
+                ];
+              queued.depth = Math.min(queued.depth, item.depth + 1);
+            } else if (job.total < MAX_NODES) {
+              job.queue.push({ ...item, url, depth: item.depth + 1 });
+              job.total++;
+            } else
+              job.warnings.push({ url, warning: "GRAPH_NODE_BUDGET_REACHED" });
+          }
+        job.processed++;
+      }
+      job.inFlight = [];
       await saveAndNotify(job);
     }
-    job.status = 'completed';
+    job.status = "completed";
     job.completedAt = new Date().toISOString();
     await saveAndNotify(job);
-  } catch (error) {
-    const data = (await chrome.storage.local.get(STORAGE_KEY))[STORAGE_KEY] || {};
-    data.status = 'paused';
-    data.fatalError = error.message;
-    await saveAndNotify(data);
-    throw error;
+  } catch (e) {
+    job ||= { queue: [], scans: {}, errors: [], processed: 0, total: 0 };
+    job.status = "paused";
+    job.fatalError = e.message;
+    await saveAndNotify(job);
+    throw e;
   } finally {
     running = false;
   }
 }
-
-function recorderRange(items = []) {
-  const dates = items.flatMap(item => item.dates || []).filter(Boolean).sort();
+export function recorderRange(items = []) {
+  const dates = items
+    .flatMap((i) => i.dates || [])
+    .filter(Boolean)
+    .sort();
   if (!dates.length) return {};
   return {
-    from: `${dates[0]}T00:00:00+07:00`,
-    to: `${dates.at(-1)}T23:59:59.999+07:00`
+    from: new Date(`${dates[0]}T00:00:00+07:00`).toISOString(),
+    to: new Date(
+      +new Date(`${dates.at(-1)}T00:00:00+07:00`) + 86400000,
+    ).toISOString(),
   };
 }
-
-function mergeRecorderEvents(scan, recorderEvents = []) {
-  if (!recorderEvents.length) return scan;
-  const events = [...(scan.events || []), ...recorderEvents];
-  const unique = new Map(events.map(event => [
-    `${event.type}|${event.datetime}|${event.text}|${event.url || ''}`,
-    event
-  ]));
-  return { ...scan, events: [...unique.values()].sort((a, b) => new Date(a.datetime) - new Date(b.datetime)) };
-}
-
 function mergeInputItems(items = []) {
-  const byUrl = new Map();
-  for (const item of items) {
-    const current = byUrl.get(item.url) || { dates: new Set(), targets: {} };
-    for (const date of item.dates || []) current.dates.add(date);
-    for (const [date, statuses] of Object.entries(item.targets || {})) {
-      current.targets[date] = [...new Set([...(current.targets[date] || []), ...statuses])];
-    }
-    byUrl.set(item.url, current);
+  const map = new Map();
+  for (const i of items) {
+    const v = map.get(i.url) || { url: i.url, dates: [], targets: {} };
+    v.dates = [...new Set([...v.dates, ...(i.dates || [])])].sort();
+    for (const [d, s] of Object.entries(i.targets || {}))
+      v.targets[d] = [...new Set([...(v.targets[d] || []), ...s])].sort();
+    map.set(i.url, v);
   }
-  return [...byUrl].map(([url, value]) => ({ url, dates: [...value.dates], targets: value.targets }));
+  return [...map.values()].sort((a, b) => a.url.localeCompare(b.url));
 }
-
-function needsRelatedScan(scan, targets = {}) {
-  return Object.entries(targets).some(([date, statuses]) => {
-    const events = (scan.events || []).filter(event => jakartaDate(event.datetime) === date);
-    const hasEnd = statuses.some(status => hasValidEnd(events, status));
-    // Related issue/sub-issue hanya dibutuhkan untuk mencari bukti End.
-    // Start wajib berasal dari transisi In Progress pada parent issue.
-    return !hasEnd;
-  });
-}
-
-function hasValidEnd(events, status = '') {
-  const normalized = String(status).toLowerCase().replace(/[-_]+/g, ' ').replace(/\s+/g, ' ').trim();
-  if (events.some(event => new RegExp(`to\\s+${normalized.replace(/ /g, '\\s+')}\\b`, 'i').test(event.text) && /(status|moved|changed)/i.test(event.text))) return true;
-  if (normalized === 'deployed' && events.some(event => /closed this|closed as completed/i.test(event.text))) return true;
-  if (normalized === 'staging' && events.some(event => /merged(?: commit| .* into) staging/i.test(event.text))) return true;
-  return events.some(event =>
-    /(linked a pull request|merged|commit(?:ted)?|submitted .* review|closed this)/i.test(event.text) ||
-    (event.type === 'comment' && String(event.body || '').trim().toLowerCase() === '/end')
-  );
-}
-
-function jakartaDate(iso) {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Jakarta', year: 'numeric', month: '2-digit', day: '2-digit'
-  }).format(new Date(iso));
-}
-
-async function scanUrl(url, githubToken) {
-  return fetchActivity(url, githubToken);
-}
-
 async function saveAndNotify(job) {
   await chrome.storage.local.set({ [STORAGE_KEY]: job });
-  chrome.runtime.sendMessage({ type: 'JOB_PROGRESS', job }).catch(() => {});
+  chrome.runtime.sendMessage({ type: "JOB_PROGRESS", job }).catch(() => {});
 }
+// MV3 can terminate the worker mid-request. Recover persisted in-flight work using session-only credentials.
+async function recover() {
+  const data = (await chrome.storage.local.get(STORAGE_KEY))[STORAGE_KEY];
+  if (data?.status !== "running" || running) return;
+  const c = (await chrome.storage.session.get("gitubgenCredentials"))
+    .gitubgenCredentials;
+  if (c?.githubToken || c?.recorderSecret)
+    await startScan(
+      data.inputs,
+      data.maxDepth,
+      c.githubToken,
+      { url: c.recorderUrl, secret: c.recorderSecret },
+      data.inputContext,
+    );
+  else {
+    data.status = "paused";
+    data.fatalError =
+      "Masukkan kembali kredensial untuk melanjutkan checkpoint.";
+    await saveAndNotify(data);
+  }
+}
+recover().catch(() => {});

@@ -1,136 +1,66 @@
-# GitubGen V2
+# GitubGen V2 — 0.10.0
 
-Extension Chromium (Chrome dan Microsoft Edge) untuk merekonsiliasi file DSM, activity GitHub, parent/sub-issue, dan KPI Excel.
+Extension Chrome/Edge untuk merekonsiliasi DSM, GitHub Project 11, Recorder, dan KPI Excel. Token GitHub hanya memerlukan akses baca; tidak menggunakan webhook atau GitHub App organisasi.
 
-## Fokus versi 0.9
+## Build dan instalasi
 
-- Seluruh status dan aktivitas issue/PR dibaca dari GitHub GraphQL menggunakan token read-only; tidak memerlukan scraping, webhook, atau GitHub App organisasi.
-- Menggabungkan riwayat dari GitubGen Recorder agar perubahan status tetap tersedia saat Activity GitHub tidak mencatatnya.
-- Memindai hingga lima issue/PR secara paralel agar proses GraphQL lebih cepat.
-- Menampilkan preview KPI berbentuk tabel setelah scan selesai sebelum workbook diunduh.
-- Membaca tiket berulang dari DSM per assignee, tanggal, dan sesi.
-- Bisa membuat workbook KPI dari nol hanya dengan upload DSM; file KPI lama bersifat opsional.
-- Dua sesi tiket yang sama pada tanggal yang sama digabung menjadi satu row KPI berdasarkan `Assignee + Ticket URL + Date`.
-- Status dan judul diambil dari kemunculan DSM terakhir pada hari tersebut.
-- Mengambil status, sub-issue, linked PR, comment, review, commit, merge/close, dan Target Date melalui GraphQL.
-- Menyimpan checkpoint scan di `chrome.storage.local`.
-- Start mengutamakan transisi `In Progress` pada parent issue di tanggal DSM yang sama. Jika event tersebut hilang, komentar parent yang isinya persis `/start` menjadi fallback.
-- End mengutamakan status DSM; jika tidak tercatat, gunakan aktivitas kerja GitHub yang valid pada parent, sub-issue, atau PR.
-- Parent/link/sub-issue diperiksa berdasarkan status DSM per tanggal, bukan hanya pasangan `In Progress` → `Ready to Review`.
-- Jam sesi DSM tidak lagi digunakan sebagai fallback Start.
-- End Time harus berasal dari activity GitHub; jika tidak ada, row ditandai `Needs Review`.
-- Hanya mengisi row KPI yang Start dan End-nya sama-sama kosong.
-- Membuat ulang sheet `Diagnostic` dengan sumber keputusan per row.
-- Menambahkan `Target Date` dari field GitHub Project pada setiap row KPI.
-- Tiket yang masih `In Progress` pada DSM 16:00 ditutup sementara pada jam pulang kerja; jika dilanjutkan esok hari, start berikutnya menjadi 09:00.
-- Sheet KPI dan Rekap Tiket Unik diurutkan dari tanggal paling awal.
+Node.js 22 atau lebih baru:
 
-## Build
-
-Persyaratan: Node.js 20+.
-
-```bash
-npm install
+```sh
+npm ci
 npm run check
 ```
 
-Hasil extension berada di folder `dist/`.
+Load folder `dist/` melalui **Load unpacked** pada `chrome://extensions` atau `edge://extensions`. Untuk memperbarui instalasi lama, ganti isi folder extension lalu klik **Reload**. Reset checkpoint lama dan scan ulang agar menggunakan rule interval yang baru.
 
-## Instalasi Chrome
+## Pemakaian
 
-1. Buka `chrome://extensions`.
-2. Aktifkan **Developer mode**.
-3. Klik **Load unpacked**.
-4. Pilih folder `dist/`.
-5. Klik ikon GitubGen V2 untuk membuka side panel.
+1. Pilih DSM Markdown dan PIC. Excel referensi opsional; tanpa Excel, aplikasi membuat workbook baru.
+2. Pilih parent saja atau penelusuran sampai tiga tingkat, termasuk parent → sub-issue → closing PR.
+3. Masukkan token GitHub (akses repo, organisasi, project sesuai kebutuhan). Recorder URL/secret opsional. Extension mendukung Recorder HTTPS pada `*.vercel.app`. Kredensial berada di session storage selama sesi browser, tidak masuk checkpoint/workbook.
+4. Scan, lalu periksa preview dan flag review. Jika GitHub gagal, bukti Recorder tetap dipakai; kegagalan masing-masing sumber ditampilkan.
+5. Untuk Excel lama, default **Isi field kosong**. Pilih **Rekonsiliasi nilai lama** bila ingin mengoreksi nilai lama. Preview sebelum/sesudah muncul sebelum unduhan; pilih baris yang disetujui atau batalkan. File asli tidak ditimpa.
 
-## Instalasi Microsoft Edge
+Kolom `Manual`, `Locked`, atau `Manual Override` bernilai YES/TRUE/1/LOCKED/MANUAL melindungi baris. Sel formula tidak ditimpa. Impor mempertahankan posisi baris dan menambahkan Target Date di ujung bila belum ada, sehingga referensi formula tidak bergeser. Workbook dengan chart, pivot, macro, embedded object, atau drawing ditolak sebelum impor karena round-trip fitur tersebut belum didukung; gunakan workbook baru dari DSM.
 
-1. Buka `edge://extensions`.
-2. Aktifkan **Developer mode**.
-3. Klik **Load unpacked**.
-4. Pilih folder `dist/`.
-5. Buka side panel melalui ikon extension.
+## DSM
 
-## Cara pakai
-
-1. Pilih file DSM `.md` atau `.txt`.
-2. File KPI `.xlsx` bersifat opsional. Kosongkan untuk membuat KPI baru dari DSM.
-3. Pilih assignee: Hizkia, Maulana, Dwiki, atau Allief.
-4. Pilih kedalaman scan.
-5. Masukkan token GitHub read-only dengan scope `repo`, `read:org`, dan `read:project`. Token hanya berada selama proses scan dan tidak ditulis ke workbook/checkpoint.
-6. Masukkan API secret GitubGen Recorder. URL production sudah terisi otomatis; keduanya tetap opsional dan kegagalan recorder otomatis memakai fallback GraphQL.
-7. Klik **Mulai scan GitHub**.
-8. Setelah selesai, periksa ringkasan lalu klik **Download Excel**.
-
-Workbook baru menggunakan urutan kolom tetap:
-
-```text
-Assignee | Type | Ticket Title | Ticket URL | Type | Status | Priority | Date | Target Date | Week | Start Time | End Time | Hour
-```
-
-Workbook berisi sheet `KPI` dengan header, border, zebra rows, filter, lebar kolom, dan format Hour; serta sheet `Diagnostic` untuk sumber keputusan waktu.
-
-Extension tidak membuka tab GitHub selama scan. Checkpoint tetap tersimpan dan dapat digunakan untuk melanjutkan scan.
-
-## Kontrak data DSM
-
-Parser membutuhkan tiga konteks sebelum URL tiket:
-
-- tanggal, misalnya `8 September 2026` atau `08/09/2026`;
-- sesi `DSM 11:00`, `15:00`, atau `16:00`;
-- nama assignee.
-
-Contoh:
+Tanggal, sesi, dan PIC hanya dibaca dari header struktural. Catatan task/deadline/mention tidak mengganti konteks. Di blok Task, URL tiket harus berada pada field GitHub.
 
 ```md
-## 8 September 2026 — DSM 11:00
-### Hizkia
-- https://github.com/GO-Bimbel/nama-repo/issues/123
+**15 Oktober 2026 Pukul 16.00**
+**Maulana**
+## Task 1 | [PROJECT] FEAT: Example
+* GitHub : https://github.com/OWNER/REPO/issues/123
+* Status : Staging
 ```
 
-## Aturan keputusan
+Format sederhana header tanggal/sesi, header PIC, lalu URL juga didukung. Tanggal tidak valid ditolak. Satu baris KPI mewakili PIC + URL + tanggal; dua sesi DSM digabung.
 
-| Urutan | Start | End | Confidence |
-|---|---|---|---|
-| 1 | Parent `In Progress` dari Recorder/GraphQL | Status parent yang sama dengan status DSM | High |
-| 2 | Komentar `/start` pada parent | Komentar `/end` pada parent/sub-issue/PR | Medium |
-| 3 | Parent `In Progress` atau komentar `/start` | PR/review/commit valid pada parent/sub-issue | Medium |
-| 4 | Tidak ditemukan | Tidak ditemukan | Needs Review |
+## Aturan waktu
 
-Keputusan dan URL sumber ditulis pada sheet `Diagnostic`.
+- Status DSM untuk pelaporan; tidak menentukan target End. In Progress membuka sesi. Ready to Review menutup sesi. Todo/No status menghentikan sesi; restart membuka sesi baru. Keluar langsung ke Staging/Deployed menjadi fallback dengan flag.
+- Hour adalah **jumlah interval kerja efektif**, bukan End dikurangi Start. Review/waiting di antara sesi tidak dihitung. Siklus singkat yang terlihat pada GitHub dipertahankan dan ditandai untuk review; tidak dikirim kembali ke database Recorder.
+- Start berasal dari parent In Progress atau komentar parent yang persis `/start`. `/end` adalah marker eksplisit. Komentar biasa, assignment, mention, dan review reviewer bukan completion pekerjaan.
+- Commit/opened PR pada hubungan terverifikasi dapat menjadi kandidat End/Last Work At. Tanpa interval kerja yang lengkap, Hour tetap unknown (kosong), termasuk jika ada Start saja atau End saja.
+- Carryover 09:00 memerlukan interval yang terbuka dari history sebelumnya, tidak cukup status DSM hari sebelumnya. Jam pulang 17:00 (Sabtu 16:00) hanya digunakan setelah waktunya lewat, untuk interval yang masih terbuka dan DSM In Progress sesi 16. Keduanya diberi label policy.
+- Jam efektif: 09–17 Senin–Jumat, Sabtu 09–16, Minggu nol. Jeda 12–13; Jumat 11:30–13:30. Timestamp faktual tidak digeser oleh clipping ini.
+- Assignment/handoff, baseline, sumber parsial, pekerjaan setelah RTR tanpa restart, siklus singkat, dan overlap diberi flag. Aktor pemindah status tidak diasumsikan sebagai pelaksana. Waktu overlap tidak dibagi otomatis dan pembagi KPI tidak diubah.
+- Native dan Recorder dikorelasikan hanya untuk transisi/status/project yang sama dengan selisih maksimal tiga detik. Timestamp mentah tetap tersedia. Baseline bukan bukti waktu mulai dengan confidence HIGH.
 
-- Event mention, assign, add-to-project, dan add-parent tidak dianggap sebagai bukti selesai.
-- Komentar hanya menjadi penanda waktu jika seluruh isinya persis `/start` atau `/end` setelah spasi tepi dibuang (case-insensitive). Kalimat seperti `hal ini akan di /start` bukan marker.
-- PR linked/opened, review, commit, merge, dan issue closed adalah end valid. Durasi sangat pendek tetap dipertahankan jika timestamp GitHub memang demikian.
-- Untuk DSM berstatus `In Progress`, transisi tersebut adalah start. Jika ada aktivitas kerja sesudahnya pada hari yang sama, aktivitas terakhir menjadi titik observasi end.
-- Khusus tiket yang masih `In Progress` pada DSM 16:00, End Time adalah jam pulang: 17:00 pada Senin–Jumat atau 16:00 pada Sabtu. Minggu tidak dibuatkan jam pulang otomatis.
-- Jika tiket masih `In Progress` pada sesi terakhir dan muncul lagi pada hari kerja berikutnya, Start Time hari lanjutan dibuat 09:00. Hari kerja adalah Senin–Sabtu, sehingga kelanjutan dari Sabtu diteruskan pada Senin.
-- Jika transisi `In Progress` dan komentar `/start` sama-sama tidak ditemukan, Start dikosongkan dan row ditandai `Needs Review`.
-- End Time tidak pernah dibuat dari waktu DSM.
-- Durasi memakai jam kerja efektif 09:00–17:00 (Sabtu sampai 16:00), dipotong istirahat 12:00–13:00 atau Jumat 11:30–13:30.
-- Export baru berisi sheet `KPI`, `Diagnostic`, dan `Rekap Tiket Unik`. Pada rekap unik, `Date` diambil dari Start Time pertama yang benar-benar diputuskan untuk KPI, sedangkan `End Date` adalah tanggal issue ditutup/deployed.
-- `Status` pada Rekap Tiket Unik diambil dari perubahan status GitHub terakhir pada parent issue; status DSM terakhir hanya dipakai sebagai fallback.
+## Bukti dan ketahanan
 
-## Batasan versi awal
+Workbook berisi KPI, Diagnostic (ID baris stabil, detik, interval, flag, sumber, rule version, project, coverage), Rekap Tiket Unik, Evidence, dan Run Metadata. Tanggal memakai Asia/Jakarta; rentang Recorder dinormalisasi UTC dengan batas akhir eksklusif.
 
-- GraphQL membatasi setiap kelompok timeline/comment/commit/review pada 100 event per issue atau PR.
-- SheetJS Community Edition mempertahankan sebagian besar workbook, tetapi fitur Excel khusus seperti macro tidak didukung.
-- Recorder hanya dapat merekam perubahan setelah cron pertama berjalan; status sebelum instalasi tidak dapat direkonstruksi jika GitHub tidak menyimpannya.
-- Jika Recorder belum dikonfigurasi atau gagal dihubungi, GraphQL dan aturan komentar tetap berlaku.
-- Link terkait dipindai satu tingkat secara default agar scan tidak melebar ke seluruh repository.
+Collector memisahkan sub-issue/closing PR/connected link dari mention biasa. Connection GitHub dipaginasi, dengan batas 40 request logis per node, 1.200 percobaan HTTP per scan, 1.500 node, dan empat worker. Batas/izin/error menghasilkan coverage parsial; hasil tidak dinyatakan lengkap. Metadata rate limit disimpan bila diberikan GitHub. Recorder dibaca dalam batch maksimal 200 URL, termasuk konteks sebelum awal periode.
 
-## Pengembangan
+Checkpoint disimpan sebelum network dan sebelum mengeluarkan batch dari antrean, termasuk in-flight work. Resume hanya untuk fingerprint input/PIC/project/range/depth/rule/source yang sama. Worker yang terhenti dapat memulihkan antrean menggunakan kredensial session; tanpa kredensial job menjadi paused. Input atau kedalaman berubah memerlukan scan baru.
 
-```bash
+## Pengujian
+
+```sh
 npm test
 npm run build
 ```
 
-Source utama:
-
-- `src/background.js` — antrean GraphQL dan checkpoint.
-- `src/lib/github-graphql.js` — query dan normalisasi seluruh activity GitHub.
-- `src/lib/dsm-parser.js` — parser DSM.
-- `src/lib/activity-matcher.js` — rule Start/End.
-- `src/sidepanel.js` — UI, rekonsiliasi workbook, dan export.
+Tes mencakup parser, interval, carryover, beberapa siklus, partial evidence, project scope, graph sampai PR, pagination/partial GraphQL, fallback Recorder independen, checkpoint, impor parsial/rekonsiliasi, round-trip formula/link/note/style/merge, Diagnostic, overlap, dan alur DOM sidepanel. Tes DOM memakai API Chrome/network stub; bukan pengujian token organisasi atau extension terpasang secara langsung.
