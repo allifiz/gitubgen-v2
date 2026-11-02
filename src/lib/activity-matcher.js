@@ -314,7 +314,10 @@ export function decideTimes(entry, scansByUrl, options = {}) {
     lastPair?.end || endEvidence?.datetime || lastWork?.datetime || null;
   if (active) {
     start ||= active.datetime;
-    end = lastWork?.datetime || null;
+    // An open interval cannot erase an earlier confirmed completion on the same day.
+    // Only count confirmed closed intervals; the open interval remains for review.
+    if (!lastPair) end = lastWork?.datetime || null;
+    if (lastPair) flags.add("PARTIAL_OPEN_INTERVAL");
     flags.add("MISSING_COMPLETION");
   }
   if (!start) flags.add("MISSING_START");
@@ -329,8 +332,7 @@ export function decideTimes(entry, scansByUrl, options = {}) {
       sum + Math.round(effectiveWorkHours(i.start, i.end) * 3600000) / 1000,
     0,
   );
-  const hours =
-    start && end && intervals.length && !active ? seconds / 3600 : null;
+  const hours = start && end && intervals.length ? seconds / 3600 : null;
   if (hours === 0) flags.add("ZERO_EFFECTIVE_DURATION");
   if (hours > 0 && seconds < 36) flags.add("SUB_DISPLAY_PRECISION");
   const baseline = events.some(
@@ -438,6 +440,11 @@ export function targetDateForTicket(url, scans) {
   return scans[url]?.targetDate || "";
 }
 export function latestGitHubStatus(url, scans, asOf = null) {
+  // A current Project 11 field is authoritative for a current-status report,
+  // but never substitute it for a historical as-of query.
+  if (!asOf && scans[url]?.currentProjectStatus) {
+    return normalizeStatus(scans[url].currentProjectStatus);
+  }
   return (
     (scans[url]?.events || [])
       .filter((e) => !asOf || +new Date(e.datetime) <= +new Date(asOf))
