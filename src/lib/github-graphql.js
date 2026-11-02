@@ -30,7 +30,7 @@ const fields = {
   statusTimeline: (after) =>
     `timelineItems(first:100${after},itemTypes:[PROJECT_V2_ITEM_STATUS_CHANGED_EVENT]) { ${PAGE} ${statusTimeline} }`,
   projectItems: (after) =>
-    `projectItems(first:100${after}) { ${PAGE} nodes { id project { id number } fieldValues(first:100) { ${PAGE} nodes { ... on ProjectV2ItemFieldDateValue { date field { ... on ProjectV2Field { id name } } } } } } }`,
+    `projectItems(first:100${after}) { ${PAGE} nodes { id project { id number } fieldValues(first:100) { ${PAGE} nodes { ... on ProjectV2ItemFieldDateValue { date field { ... on ProjectV2Field { id name } } } ... on ProjectV2ItemFieldSingleSelectValue { name field { ... on ProjectV2SingleSelectField { name } } } } } } }`,
 };
 const issueFields = [
   "comments",
@@ -233,11 +233,16 @@ export function normalizeActivity(payload, requestedUrl, options = {}) {
     ).values(),
   ];
   let targetDate = "";
-  for (const item of s.projectItems?.nodes || [])
-    if (item?.project?.number === (options.projectNumber || 11))
-      for (const v of item.fieldValues?.nodes || [])
-        if (/^target date$/i.test(v?.field?.name || "") && v.date)
-          targetDate = v.date;
+  let currentProjectStatus = "";
+  for (const item of s.projectItems?.nodes || []) {
+    if (item?.project?.number !== (options.projectNumber || 11)) continue;
+    for (const v of item.fieldValues?.nodes || []) {
+      if (/^target date$/i.test(v?.field?.name || "") && v.date)
+        targetDate = v.date;
+      if (/^status$/i.test(v?.field?.name || "") && v.name)
+        currentProjectStatus = v.name;
+    }
+  }
   return {
     ok: true,
     url,
@@ -252,6 +257,7 @@ export function normalizeActivity(payload, requestedUrl, options = {}) {
       ),
     ],
     targetDate,
+    currentProjectStatus,
     collectedAt: new Date().toISOString(),
     activitySource: "graphql",
   };
@@ -359,6 +365,10 @@ export async function fetchActivity(
       (a, b) => +new Date(a.datetime) - +new Date(b.datetime),
     ),
     targetDate: project?.targetDate || core?.targetDate || "",
+    currentProjectStatus:
+      project?.currentProjectStatus || core?.currentProjectStatus || "",
+    title: core?.title || project?.title || "",
+    collectedAt: project?.collectedAt || core?.collectedAt || new Date().toISOString(),
     warnings,
     coverage: {
       complete: !!core && !!project && !warnings.length,

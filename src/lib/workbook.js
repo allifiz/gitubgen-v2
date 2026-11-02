@@ -16,13 +16,17 @@ function findHeaderRow(matrix) {
   return matrix.findIndex((row) => {
     const normalized = row.map(normalizeHeader);
     return (
-      normalized.includes("ticket url") &&
-      normalized.some((cell) => cell === "start time")
+      normalized.some((cell) => ["ticket url", "url"].includes(cell)) &&
+      normalized.some((cell) => ["start time", "start"].includes(cell))
     );
   });
 }
 function findColumn(headers, names) {
   return headers.findIndex((header) => names.includes(header));
+}
+function ticketTitleFor(entry, scans) {
+  // GitHub is the canonical issue title; DSM headings are a fallback.
+  return String(scans[entry.ticketUrl]?.title || entry.ticketTitle || "").trim();
 }
 function normalizeHeader(value) {
   return String(value || "")
@@ -319,12 +323,13 @@ export function createWorkbookFromDsm(entries, scans) {
     diagnostics = [];
   const rows = models.map(({ entry: e, decision: d }, i) => {
     diagnostics.push(diagnosticsRow(i + 2, e, d, scans));
+    const title = ticketTitleFor(e, scans);
     return [
       displayAssignee(e.assignee),
-      systemType(e.ticketTitle),
-      e.ticketTitle,
+      systemType(title),
+      title,
       e.ticketUrl,
-      ticketType(e.ticketTitle),
+      ticketType(title),
       e.status,
       "",
       displayDate(e.date),
@@ -373,7 +378,14 @@ function appendUniqueTicketsSheet(wb, entries, scans) {
   const rows = [...groups.values()].map((group) => {
     const sorted = [...group].sort((a, b) => a.date.localeCompare(b.date)),
       e = sorted[0],
+      title = ticketTitleFor(e, scans),
       last = sorted.at(-1),
+      latestStatus = latestGitHubStatus(e.ticketUrl, scans),
+      statusSource = scans[e.ticketUrl]?.currentProjectStatus
+        ? "GitHub Project 11 (current)"
+        : latestStatus
+          ? "GitHub/Recorder history"
+          : "DSM fallback",
       period = uniqueTicketPeriod(group, scans),
       starts = group
         .map((e) => decideTimes(e, scans).start)
@@ -382,20 +394,16 @@ function appendUniqueTicketsSheet(wb, entries, scans) {
       date = localDate(starts[0]) || period.startDate;
     return [
       displayAssignee(e.assignee),
-      systemType(e.ticketTitle),
-      e.ticketTitle,
+      systemType(title),
+      title,
       e.ticketUrl,
-      displayStatus(
-        latestGitHubStatus(
-          e.ticketUrl,
-          scans,
-          `${last.date}T23:59:59.999+07:00`,
-        ) || last.status,
-      ),
+      displayStatus(latestStatus || last.status),
       "",
       displayDate(date),
       period.endDate ? displayDate(period.endDate) : "",
       weekOfMonth(date),
+      latestStatus ? scans[e.ticketUrl]?.collectedAt || "" : "",
+      statusSource,
     ];
   });
   const sheet = XLSX.utils.aoa_to_sheet([
@@ -409,10 +417,12 @@ function appendUniqueTicketsSheet(wb, entries, scans) {
       "Date",
       "End Date",
       "Week",
+      "Status As Of (UTC)",
+      "Status Source",
     ],
     ...rows,
   ]);
-  sheet["!cols"] = [14, 14, 58, 58, 20, 12, 14, 14, 12].map((wch) => ({ wch }));
+  sheet["!cols"] = [14, 14, 58, 58, 20, 12, 14, 14, 12, 25, 30].map((wch) => ({ wch }));
   attachSheet(wb, "Rekap Tiket Unik", sheet);
 }
 export function fillWorkbook(inputWorkbook, entries, scans, options = {}) {
@@ -424,7 +434,10 @@ export function fillWorkbook(inputWorkbook, entries, scans, options = {}) {
     byId = new Map(models.map((m) => [rowId(m.entry), m]));
   const sheetName =
       workbook.SheetNames.find((n) => /^kpi$/i.test(n)) ||
-      workbook.SheetNames[0],
+      workbook.SheetNames.find((n) =>
+        !/^(diagnostic|diagnostics|evidence|rekap tiket unik|run metadata)$/i.test(n) &&
+        findHeaderRow(XLSX.utils.sheet_to_json(workbook.Sheets[n], { header: 1, defval: "" })) >= 0,
+      ) || workbook.SheetNames[0],
     sheet = workbook.Sheets[sheetName];
   const matrix = XLSX.utils.sheet_to_json(sheet, {
       header: 1,
@@ -432,11 +445,13 @@ export function fillWorkbook(inputWorkbook, entries, scans, options = {}) {
       raw: true,
     }),
     header = findHeaderRow(matrix);
-  if (header < 0) throw new Error("Header KPI tidak ditemukan.");
+  if (header < 0)
+    throw new Error(`Header KPI tidak ditemukan di sheet "${sheetName}". Pastikan ada kolom Ticket URL/URL dan Start Time/Start.`);
   const headers = matrix[header].map(normalizeHeader),
     col = (names) => findColumn(headers, names);
   const cols = {
     assignee: col(["assignee", "pic"]),
+    title: col(["ticket title", "judul tiket", "judul"]),
     url: col(["ticket url", "url"]),
     date: col(["date", "tanggal"]),
     start: col(["start time", "start"]),
@@ -505,6 +520,7 @@ export function fillWorkbook(inputWorkbook, entries, scans, options = {}) {
     const approved =
       !options.allowedRowIds || options.allowedRowIds.includes(id);
     const proposes = {
+      title: ticketTitleFor(model.entry, scans),
       start: d.start ? formatDateTime(d.start) : "",
       end: d.end ? formatDateTime(d.end) : "",
       hour: d.hours,
@@ -536,6 +552,9 @@ export function fillWorkbook(inputWorkbook, entries, scans, options = {}) {
         d.needsReview = true;
         continue;
       }
+      // Titles filled by humans (and formulas) must not be overwritten,
+      // including in reconciliation mode.
+      if (key === "title" && old !== "") continue;
       if (old !== "" && options.mode !== "reconcile") {
         if (
           (key === "start" || key === "end"
