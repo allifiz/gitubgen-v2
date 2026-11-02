@@ -1,6 +1,6 @@
 import XLSX from "xlsx-js-style";
 import { collapseDailyEntries, parseDsm } from "./lib/dsm-parser.js";
-import { decideTimes, decisionRows } from "./lib/activity-matcher.js";
+import { decideTimes, decisionRows, RULE_VERSION } from "./lib/activity-matcher.js";
 import {
   createWorkbookFromDsm,
   fillWorkbook,
@@ -280,6 +280,8 @@ function renderPreview() {
 
 async function exportWorkbook() {
   if (!state.job) return showError("Hasil scan belum tersedia.");
+  if (state.job.ruleVersion !== RULE_VERSION)
+    return showError("Versi aturan KPI berubah. Jalankan scan ulang agar data Oktober diperbarui.");
   if (
     state.job.inputContext !== inputContext(state.entries) ||
     state.job.maxDepth !== Number($("#depth").value)
@@ -345,6 +347,7 @@ function refreshExportState() {
     !(
       state.entries.length &&
       state.job?.status === "completed" &&
+      state.job.ruleVersion === RULE_VERSION &&
       state.job.inputContext === inputContext(state.entries) &&
       state.job.maxDepth === Number($("#depth").value)
     ),
