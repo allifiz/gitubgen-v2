@@ -380,6 +380,12 @@ function appendUniqueTicketsSheet(wb, entries, scans) {
       e = sorted[0],
       title = ticketTitleFor(e, scans),
       last = sorted.at(-1),
+      latestStatus = latestGitHubStatus(e.ticketUrl, scans),
+      statusSource = scans[e.ticketUrl]?.currentProjectStatus
+        ? "GitHub Project 11 (current)"
+        : latestStatus
+          ? "GitHub/Recorder history"
+          : "DSM fallback",
       period = uniqueTicketPeriod(group, scans),
       starts = group
         .map((e) => decideTimes(e, scans).start)
@@ -391,12 +397,13 @@ function appendUniqueTicketsSheet(wb, entries, scans) {
       systemType(title),
       title,
       e.ticketUrl,
-      displayStatus(latestGitHubStatus(e.ticketUrl, scans) || last.status),
+      displayStatus(latestStatus || last.status),
       "",
       displayDate(date),
       period.endDate ? displayDate(period.endDate) : "",
       weekOfMonth(date),
-      scans[e.ticketUrl]?.collectedAt || "",
+      latestStatus ? scans[e.ticketUrl]?.collectedAt || "" : "",
+      statusSource,
     ];
   });
   const sheet = XLSX.utils.aoa_to_sheet([
@@ -411,10 +418,11 @@ function appendUniqueTicketsSheet(wb, entries, scans) {
       "End Date",
       "Week",
       "Status As Of (UTC)",
+      "Status Source",
     ],
     ...rows,
   ]);
-  sheet["!cols"] = [14, 14, 58, 58, 20, 12, 14, 14, 12, 25].map((wch) => ({ wch }));
+  sheet["!cols"] = [14, 14, 58, 58, 20, 12, 14, 14, 12, 25, 30].map((wch) => ({ wch }));
   attachSheet(wb, "Rekap Tiket Unik", sheet);
 }
 export function fillWorkbook(inputWorkbook, entries, scans, options = {}) {
