@@ -1,4 +1,4 @@
-export const RULE_VERSION = "intervals-2026-10-17.1";
+export const RULE_VERSION = "intervals-2026-11-02.1";
 export const PROJECT_NUMBER = 11;
 const TZ = "Asia/Jakarta";
 export function localDate(iso) {
