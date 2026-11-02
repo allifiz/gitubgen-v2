@@ -5,10 +5,11 @@ import { build } from "esbuild";
 import { JSDOM } from "jsdom";
 import XLSX from "xlsx-js-style";
 import { inputContext } from "../src/lib/job.js";
+import { RULE_VERSION } from "../src/lib/activity-matcher.js";
 import { parseDsm } from "../src/lib/dsm-parser.js";
 const root = "https://github.com/GO-Bimbel/api/issues/1";
 const md = `**15 Oktober 2026 Pukul 16.00**\n**Maulana**\n## Task 1 | [TEST] FEAT: Example\n* GitHub : ${root}\n* Status : Staging`;
-async function ui() {
+async function ui({ jobRuleVersion = RULE_VERSION } = {}) {
   const bundled = await build({
     entryPoints: [new URL("../src/sidepanel.js", import.meta.url).pathname],
     bundle: true,
@@ -64,6 +65,7 @@ async function ui() {
                 type: "JOB_PROGRESS",
                 job: {
                   status: "completed",
+                  ruleVersion: jobRuleVersion,
                   total: 1,
                   processed: 1,
                   maxDepth: m.maxDepth,
@@ -134,6 +136,7 @@ test("sidepanel parse → scan → preview → Excel download memakai hasil inte
     u.saved.gitubgenCredentials.recorderUrl,
     "https://gitubgen-recorder.vercel.app",
   );
+  assert.equal(u.w.document.querySelector("#export").classList.contains("hidden"), false);
   u.w.document.querySelector("#export").click();
   await u.tick();
   assert.equal(u.downloads.length, 1);
@@ -181,5 +184,18 @@ test("rekonsiliasi membutuhkan preview row, batal tidak mengunduh, apply menghas
   await u.tick();
   assert.equal(u.downloads.length, 1);
   assert.match(u.downloads[0].filename, /reference-GITUBGEN-V2/);
+  u.dom.window.close();
+});
+
+test("checkpoint berisi RULE_VERSION lama ditolak saat export", async () => {
+  const u = await ui({ jobRuleVersion: "intervals-2026-10-17.1" });
+  u.w.document.querySelector("#scan").click();
+  await u.tick();
+  await u.tick();
+  assert.ok(u.w.document.querySelector("#export").classList.contains("hidden"));
+  u.w.document.querySelector("#export").click();
+  await u.tick();
+  assert.match(u.w.document.querySelector("#message").textContent, /Versi aturan KPI berubah/);
+  assert.equal(u.downloads.length, 0);
   u.dom.window.close();
 });
