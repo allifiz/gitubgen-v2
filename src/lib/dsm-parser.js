@@ -64,9 +64,10 @@ export function parseSessionFromText(text) {
 }
 
 function findAssignees(text) {
+  const normalized = text.replace(/\s*\(\s*\d+\s*tasks?\s*\)\s*$/i, "").trim();
   return Object.entries(ALIASES)
     .filter(([, aliases]) =>
-      aliases.some((alias) => new RegExp(`^${alias}$`, "i").test(text.trim())),
+      aliases.some((alias) => new RegExp(`^${alias}$`, "i").test(normalized)),
     )
     .map(([name]) => name);
 }
@@ -166,7 +167,7 @@ export function parseDsm(markdown, options = {}) {
 
 function cleanMarkdown(value = "") {
   return String(value)
-    .replace(/\\([_\[\]*:#-])/g, "$1")
+    .replace(/\\([_\[\]*:#|\-])/g, "$1")
     .replace(/^\s*[-*]+\s*/, "")
     .replace(/\*+/g, "")
     .replace(/\s+/g, " ")
