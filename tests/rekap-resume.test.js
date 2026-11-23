@@ -73,3 +73,41 @@ test('impor KPI menjumlah semua baris tiket, menjaga jam kosong dan total jam no
   assert.equal(detail[1]['Cakupan Hour'], '1/1 baris KPI');
   assert.equal(XLSX.utils.sheet_to_json(workbook.Sheets.Resume)[0]['Total Task'], 1);
 });
+
+test('rumus Excel menghubungkan edit waktu KPI, rekap, ketepatan, dan resume', () => {
+  const { workbook } = createWorkbookFromDsm([task('allief', '2026-10-03')], scans);
+  const kpi = workbook.Sheets.KPI;
+  const rekap = workbook.Sheets['Rekap Tiket Unik'];
+  const resume = workbook.Sheets.Resume;
+  assert.equal(kpi.G1.v, 'Date'); // Priority removed from newly generated KPI.
+  assert.equal(rekap.F1.v, 'Date DSM');
+  assert.equal(kpi.L1.v, 'Hour');
+  assert.match(kpi.L2.f, /J2=M2/);
+  assert.match(kpi.L2.f, /K2=N2/);
+  assert.match(kpi.L2.f, /R2/); // Manual hour helper, after editing either timestamp.
+  assert.match(kpi.R2.f, /WEEKDAY\(P2,2\)/);
+  assert.match(kpi.R2.f, /TIME\(11,30,0\)/);
+  assert.match(rekap.J2.f, /SUMIFS\('KPI'!\$L\$2:\$L\$2/);
+  assert.match(rekap.M2.f, /ISNUMBER\('KPI'!\$L\$2:\$L\$2\)/);
+  assert.match(rekap.K2.f, /I2=""/);
+  assert.match(resume.G2.f, /'Rekap Tiket Unik'!\$K\$2:\$K\$2/);
+  assert.equal(workbook.Workbook.CalcPr.calcMode, 'auto');
+  const reopened = XLSX.read(XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' }), { type: 'buffer', cellStyles: true });
+  assert.equal(reopened.Sheets.KPI.L2.f, kpi.L2.f);
+  assert.equal(reopened.Sheets['Rekap Tiket Unik'].J2.f, rekap.J2.f);
+  assert.equal(reopened.Sheets.Resume.G2.f, resume.G2.f);
+  assert.equal(reopened.Sheets.KPI.M1.v, '_GitubGen Start');
+  assert.equal(reopened.Sheets.KPI['!cols'][12].hidden, true);
+});
+
+test('PIC alias pada workbook impor memakai kunci yang sama di rumus rekap', () => {
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+    ['Assignee', 'URL', 'Date', 'Start', 'End', 'Hour'],
+    ['Dwiki', other, '03/10/2026', '', '', 2],
+  ]), 'KPI');
+  const { workbook } = fillWorkbook(wb, [task('dwiky', '2026-10-03', other)], scans);
+  assert.equal(workbook.Sheets['Rekap Tiket Unik'].A2.v, 'Dwiky');
+  assert.equal(workbook.Sheets.KPI.N2.v, 'Dwiky');
+  assert.match(workbook.Sheets['Rekap Tiket Unik'].J2.f, /'KPI'!\$N\$2:\$N\$2=\$A2/);
+});

@@ -96,9 +96,9 @@ test("unique tickets use the current status, not last DSM day or another Project
   assert.equal(workbook.Sheets.KPI.C2.v, scans[url].title);
   assert.equal(workbook.Sheets["Rekap Tiket Unik"].C2.v, scans[url].title);
   assert.equal(workbook.Sheets["Rekap Tiket Unik"].E2.v, "Deployed");
-  assert.equal(workbook.Sheets["Rekap Tiket Unik"].G2.v, "27/10/2026");
-  assert.equal(workbook.Sheets["Rekap Tiket Unik"].P2.v, scans[url].collectedAt);
-  assert.equal(workbook.Sheets["Rekap Tiket Unik"].Q2.v, "GitHub Project 11 (current)");
+  assert.equal(workbook.Sheets["Rekap Tiket Unik"].F2.v, "27/10/2026");
+  assert.equal(workbook.Sheets["Rekap Tiket Unik"].O2.v, scans[url].collectedAt);
+  assert.equal(workbook.Sheets["Rekap Tiket Unik"].P2.v, "GitHub Project 11 (current)");
   // The daily DSM status must remain historical, not be replaced by current Project status.
   assert.equal(workbook.Sheets.KPI.F2.v, "In Progress");
 });

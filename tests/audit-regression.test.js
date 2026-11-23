@@ -406,7 +406,7 @@ test("F21 tanggal unik memakai WIB, bukan slice UTC", () => {
       st("10:00:00", "In Progress", "Ready to Review"),
     ]),
   });
-  assert.equal(result.workbook.Sheets["Rekap Tiket Unik"].G2.v, "15/10/2026");
+  assert.equal(result.workbook.Sheets["Rekap Tiket Unik"].F2.v, "15/10/2026");
   assert.equal(localDate("2026-10-14T18:00:00Z"), "2026-10-15");
 });
 test("F22 Recorder client chunks 451 URL tanpa silent truncation", async () => {

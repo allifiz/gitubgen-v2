@@ -67,16 +67,16 @@ function setCell(sheet, zeroRow, zeroCol, value, type = "s") {
   delete sheet[address].w;
 }
 function styleKpiSheet(sheet, rowCount) {
-  const widths = [14, 14, 58, 58, 14, 20, 12, 14, 14, 12, 22, 22, 12];
+  const widths = [14, 14, 58, 58, 14, 20, 14, 14, 12, 22, 22, 12];
   sheet["!cols"] = widths.map((wch) => ({ wch }));
-  sheet["!autofilter"] = { ref: `A1:M${Math.max(1, rowCount + 1)}` };
+  sheet["!autofilter"] = { ref: `A1:L${Math.max(1, rowCount + 1)}` };
   const border = {
     top: { style: "thin", color: { rgb: "D0D7DE" } },
     bottom: { style: "thin", color: { rgb: "D0D7DE" } },
     left: { style: "thin", color: { rgb: "D0D7DE" } },
     right: { style: "thin", color: { rgb: "D0D7DE" } },
   };
-  for (let col = 0; col < 13; col += 1) {
+  for (let col = 0; col < 12; col += 1) {
     const cell = sheet[XLSX.utils.encode_cell({ r: 0, c: col })];
     if (cell)
       cell.s = {
@@ -87,7 +87,7 @@ function styleKpiSheet(sheet, rowCount) {
       };
   }
   for (let row = 1; row <= rowCount; row += 1) {
-    for (let col = 0; col < 13; col += 1) {
+    for (let col = 0; col < 12; col += 1) {
       const address = XLSX.utils.encode_cell({ r: row, c: col });
       const cell = sheet[address] || (sheet[address] = { t: "s", v: "" });
       cell.s = {
@@ -95,7 +95,7 @@ function styleKpiSheet(sheet, rowCount) {
         border,
         fill: row % 2 === 0 ? { fgColor: { rgb: "F7FAFC" } } : undefined,
       };
-      if (col === 12 && cell.t === "n") cell.z = "0.00";
+      if (col === 11 && cell.t === "n") cell.z = "0.00";
     }
   }
   sheet["!rows"] = [
@@ -253,14 +253,103 @@ function attachSheet(wb, name, sheet) {
   if (!wb.SheetNames.includes(name)) wb.SheetNames.push(name);
   wb.Sheets[name] = sheet;
 }
+function formulaCell(sheet, row, col, formula, cached) {
+  const address = XLSX.utils.encode_cell({ r: row, c: col });
+  const previous = sheet[address] || {};
+  sheet[address] = { ...previous, f: formula, v: cached, t: typeof cached === "number" ? "n" : "s" };
+  delete sheet[address].w;
+}
+function kpiLayout(wb) {
+  const name = wb.SheetNames.find((n) => /^kpi$/i.test(n));
+  const sheet = wb.Sheets[name];
+  if (!sheet) return null;
+  const matrix = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "", raw: true });
+  const header = findHeaderRow(matrix);
+  if (header < 0) return null;
+  const names = matrix[header].map(normalizeHeader);
+  const col = (aliases) => findColumn(names, aliases);
+  const rows = [];
+  for (let r = header + 1; r < matrix.length; r++)
+    if (normalizeGitHubUrl(String(matrix[r][col(["ticket url", "url"])] || ""))) rows.push(r);
+  return { name, sheet, matrix, header, rows, pic: col(["assignee", "pic"]),
+    url: col(["ticket url", "url"]), start: col(["start time", "start"]),
+    end: col(["end time", "end"]), hour: col(["hour", "hours", "durasi"]) };
+}
+const manualHeaders = ["_GitubGen Start", "_GitubGen End", "_GitubGen Hour",
+  "_GitubGen Parsed Start", "_GitubGen Parsed End", "_GitubGen Manual Hour", "_GitubGen PIC"];
+function normalizedPicFormula(input) {
+  const cleaned = `LOWER(SUBSTITUTE(SUBSTITUTE(TRIM(${input})," ",""),"gobimbel",""))`;
+  return `IF(OR(${cleaned}="allif",${cleaned}="allief"),"Allief",IF(OR(${cleaned}="dwiki",${cleaned}="dwiky",${cleaned}="dwikyananditya"),"Dwiky",IF(${cleaned}="maslanadev","Maulana",TRIM(${input}))))`;
+}
+function parsedTimeFormula(input) {
+  return `IF(${input}="","",IF(ISNUMBER(${input}),${input},IFERROR(DATE(VALUE(MID(${input},7,4)),VALUE(MID(${input},4,2)),VALUE(LEFT(${input},2)))+TIME(VALUE(MID(${input},12,2)),VALUE(MID(${input},15,2)),IFERROR(VALUE(MID(${input},18,2)),0)),"")))`;
+}
+function manualHourFormula(start, end) {
+  const day = `WEEKDAY(${start},2)`;
+  const from = `MAX(MOD(${start},1),TIME(9,0,0))`;
+  const to = `MIN(MOD(${end},1),IF(${day}=6,TIME(16,0,0),TIME(17,0,0)))`;
+  const breakFrom = `IF(${day}=5,TIME(11,30,0),TIME(12,0,0))`;
+  const breakTo = `IF(${day}=5,TIME(13,30,0),TIME(13,0,0))`;
+  const breakHours = `MAX(0,MIN(${to},${breakTo})-MAX(${from},${breakFrom}))`;
+  return `IF(OR(${start}="",${end}=""),"",IF(OR(INT(${start})<>INT(${end}),${end}<${start}),"",IF(${day}=7,0,ROUND(MAX(0,(${to}-${from}-${breakHours})*24),10))))`;
+}
+function installDynamicKpiHours(wb) {
+  const layout = kpiLayout(wb);
+  if (!layout || layout.hour < 0 || layout.start < 0 || layout.end < 0) return;
+  const { sheet, header, rows, matrix } = layout;
+  const existing = matrix[header].map(normalizeHeader).indexOf(normalizeHeader(manualHeaders[0]));
+  const base = existing >= 0 ? existing : XLSX.utils.decode_range(sheet["!ref"]).e.c + 1;
+  const letter = (c, r) => XLSX.utils.encode_cell({ r, c });
+  for (let i = 0; i < manualHeaders.length; i++) {
+    setCell(sheet, header, base + i, manualHeaders[i]);
+    sheet["!cols"] ||= [];
+    sheet["!cols"][base + i] = { hidden: true, wch: 3 };
+  }
+  for (const r of rows) {
+    const original = sheet[letter(layout.hour, r)];
+    if (layout.pic >= 0) formulaCell(sheet, r, base + 6,
+      normalizedPicFormula(letter(layout.pic, r)), displayAssignee(matrix[r][layout.pic]));
+    if (original?.f) continue; // Respect human formulas and formulas from earlier exports.
+    const start = letter(layout.start, r), end = letter(layout.end, r), hour = letter(layout.hour, r);
+    const [savedStart, savedEnd, savedHour, parsedStart, parsedEnd, manualHour] =
+      manualHeaders.map((_, i) => letter(base + i, r));
+    if (existing < 0 || !sheet[savedStart]) {
+      setCell(sheet, r, base, sheet[start]?.v ?? "");
+      setCell(sheet, r, base + 1, sheet[end]?.v ?? "");
+      setCell(sheet, r, base + 2, original?.v ?? "", typeof original?.v === "number" ? "n" : "s");
+    }
+    formulaCell(sheet, r, base + 3, parsedTimeFormula(start), "");
+    formulaCell(sheet, r, base + 4, parsedTimeFormula(end), "");
+    formulaCell(sheet, r, base + 5, manualHourFormula(parsedStart, parsedEnd), "");
+    formulaCell(sheet, r, layout.hour,
+      `IF(AND(${start}=${savedStart},${end}=${savedEnd}),IF(ISNUMBER(${savedHour}),${savedHour},""),IF(OR(${start}="",${end}=""),"",${manualHour}))`,
+      original?.v ?? "");
+    sheet[hour].z = "0.00";
+  }
+  const range = XLSX.utils.decode_range(sheet["!ref"]);
+  range.e.c = Math.max(range.e.c, base + manualHeaders.length - 1);
+  sheet["!ref"] = XLSX.utils.encode_range(range);
+}
+function kpiTicketRanges(wb) {
+  const layout = kpiLayout(wb);
+  if (!layout || layout.hour < 0 || layout.pic < 0) return null;
+  const quote = `'${layout.name.replaceAll("'", "''")}'!`;
+  const end = Math.max(layout.header + 2, ...layout.rows.map((r) => r + 1));
+  const range = (col) => `${quote}$${XLSX.utils.encode_col(col)}$${layout.header + 2}:$${XLSX.utils.encode_col(col)}$${end}`;
+  const helper = matrixHelperPic(layout);
+  return { pic: range(helper >= 0 ? helper : layout.pic), url: range(layout.url), hour: range(layout.hour) };
+}
+function matrixHelperPic(layout) {
+  return layout.matrix[layout.header].map(normalizeHeader).indexOf(normalizeHeader(manualHeaders[6]));
+}
 const GUIDE_MARKER = "PANDUAN GITUBGEN";
 const sheetGuides = {
   KPI: [
     ["Isi baris", "Satu baris = satu PIC + URL tiket + tanggal DSM. Dua sesi pada tanggal yang sama digabung; Status adalah status dari DSM pada hari itu."],
     ["Sumber tanggal", "Date berasal dari DSM; Target Date dari field Project 11. Start Time dan End Time memakai bukti aktivitas GitHub/Recorder pada hari kerja tersebut, ditampilkan dalam WIB."],
     ["Rumus Hour", "Hour = jumlah detik efektif dari interval kerja In Progress yang terbukti / 3600. Jam kerja: Senin-Jumat 09.00-17.00, Sabtu 09.00-16.00; istirahat biasa 12.00-13.00, Jumat 11.30-13.30."],
-    ["Nilai kosong", "Hour kosong berarti interval kerja lengkap tidak dapat dibuktikan, bukan 0 jam. Selisih sederhana End Time - Start Time bukan rumus Hour karena jeda/review tidak ikut dihitung."],
-    ["Workbook impor", "Pada mode isi field kosong, nilai KPI yang sudah ada dipertahankan. Total Hour di Rekap dihitung dari angka KPI hasil akhir pada saat file diekspor."],
+    ["Edit manual", "Jika Start Time atau End Time diedit, Hour dihitung ulang dari pasangan waktu WIB pada hari yang sama, dibatasi jam kerja dan istirahat. Nilai awal dari scan tetap dipakai selama kedua waktu belum diubah. Hapus salah satu waktu untuk mengosongkan Hour."],
+    ["Workbook impor", "Pada mode isi field kosong, nilai KPI yang sudah ada dipertahankan. Rumus di sel yang sudah ada tetap dilindungi; Hour baru yang ditambahkan menjadi dinamis."],
   ],
   Diagnostic: [
     ["Isi baris", "Satu baris Diagnostic merujuk ke nomor baris KPI di kolom KPI Row; Row ID adalah gabungan PIC, URL tiket, dan tanggal."],
@@ -273,9 +362,9 @@ const sheetGuides = {
     ["Satu tiket", "Satu baris = satu PIC + URL tiket dari DSM. Date DSM adalah tanggal paling awal tiket itu muncul dalam DSM yang digenerate, termasuk pekerjaan dari bulan sebelumnya bila ada."],
     ["Tanggal Project", "Start Date dan Target Date diambil langsung dari field GitHub Project 11 saat scan; kosong jika field tidak tersedia atau Project tidak dapat dibaca."],
     ["End Date", "Tanggal WIB saat tiket pertama kali berpindah ke Staging atau Deployed pada riwayat Project 11. Ini bukan End Time baris KPI atau waktu tiket ditutup."],
-    ["Total Hour", "Jumlah semua angka Hour pada sheet KPI hasil ekspor dengan PIC dan URL tiket yang sama, dari semua tanggal yang tersedia di workbook ini. Kosong jika tidak ada angka; 0 yang tercatat tetap 0."],
-    ["Cakupan Hour", "Contoh 2/3 baris KPI berarti dua dari tiga baris untuk PIC+tiket tersebut memiliki angka Hour. Total Hour bisa parsial bila cakupannya belum penuh."],
-    ["Ketepatan", "Tepat Waktu jika End Date <= Target Date; Melewati Target jika lebih lambat. Tanpa Target jika target kosong; Belum Ada End Date jika target ada namun transisi selesai belum terbukti."],
+    ["Total Hour", "Rumus menjumlahkan Hour di KPI dengan PIC dan URL tiket yang sama. Saat Hour KPI berubah, Total Hour ikut berubah. Kosong jika belum ada angka; angka 0 tetap dihitung."],
+    ["Cakupan Hour", "Rumus menghitung baris KPI yang memiliki angka Hour untuk PIC+tiket tersebut, misalnya 2/3 baris KPI. Saat Hour manual berubah, cakupan ikut diperbarui."],
+    ["Ketepatan", "Rumus membandingkan End Date dan Target Date: Tepat Waktu jika End Date <= Target Date; Melewati Target jika lebih lambat. Tanpa Target jika target kosong; Belum Ada End Date jika belum ada transisi selesai. Perubahan End Time KPI tidak mengubah End Date Project."],
     ["Status dan closed", "Status adalah status terakhir Project 11 (fallback riwayat/DSM). Tiket Closed berasal dari status issue ditutup; Status As Of (UTC) adalah waktu status dibaca, bukan waktu perubahan status."],
   ],
   Resume: [
@@ -283,7 +372,7 @@ const sheetGuides = {
     ["Done / Closed", "Jumlah tiket unik yang issue GitHub-nya ditutup. Staging dan Ready to Review menghitung status terakhir tiket saat scan, bukan seluruh tiket yang pernah melewati tahap itu."],
     ["Ketepatan", "Tepat Waktu dan Melewati Target menghitung kategori Ketepatan per tiket unik di Rekap; tanggal pembanding adalah Staging/Deployed pertama dalam WIB terhadap Target Date Project 11."],
     ["Tanpa Target", "Jumlah tiket unik yang Target Date-nya kosong. Tiket dengan target tetapi belum punya End Date tidak termasuk tiga kolom kategori ketepatan sampai ada bukti transisinya."],
-    ["Pembaruan", "Angka Resume adalah hasil saat file digenerate. Jika data GitHub atau angka KPI berubah setelahnya, scan dan ekspor ulang untuk menghitung kembali."],
+    ["Pembaruan", "Angka Resume memakai rumus dari Rekap Tiket Unik. Edit tanggal, status, dan Tiket Closed di Rekap akan memperbarui hitungan saat Excel menghitung ulang. Perubahan baru di GitHub tetap memerlukan scan ulang."],
   ],
   Evidence: [
     ["Isi baris", "Catatan aktivitas mentah dari scan untuk tiket DSM beserta tiket/PR terkait; URL yang muncul tidak semuanya menjadi task unik pada Resume."],
@@ -309,7 +398,8 @@ function appendSheetGuide(sheet, notes) {
       break;
     }
   if (row < 0) row = range.e.r + 2; // One blank row separates data and guidance.
-  const lastCol = Math.max(1, range.e.c);
+  const visibleEnd = sheet["!autofilter"] ? XLSX.utils.decode_range(sheet["!autofilter"].ref).e.c : range.e.c;
+  const lastCol = Math.max(1, visibleEnd);
   setCell(sheet, row, 0, GUIDE_MARKER);
   const heading = sheet[XLSX.utils.encode_cell({ r: row, c: 0 })];
   heading.s = {
@@ -346,10 +436,13 @@ function appendSheetGuide(sheet, notes) {
     sheet["!cols"][1] = { wch: 115 };
   }
   range.e.r = Math.max(range.e.r, row + notes.length);
-  range.e.c = lastCol;
+  range.e.c = Math.max(range.e.c, lastCol);
   sheet["!ref"] = XLSX.utils.encode_range(range);
 }
 function finish(wb, diagnostics, entries, scans, imported = false) {
+  installDynamicKpiHours(wb);
+  wb.Workbook ||= {};
+  wb.Workbook.CalcPr = { calcMode: "auto", fullCalcOnLoad: true, forceFullCalc: true };
   const sheet = XLSX.utils.aoa_to_sheet([diagnosticHeaders, ...diagnostics]);
   sheet["!cols"] = diagnosticHeaders.map((h, i) => ({
     wch: [0, 2, 3, 8, 9, 12, 13, 18, 19].includes(i) ? 16 : 42,
@@ -418,7 +511,7 @@ function finish(wb, diagnostics, entries, scans, imported = false) {
       : wb.Sheets[name];
     const guide = name === "KPI" && !imported
       ? [...notes.slice(0, -1), ["Workbook baru",
-          "Tanpa unggah Excel lama, semua baris KPI dibuat dari DSM dan hasil scan GitHub/Recorder. Total Hour di Rekap menjumlahkan Hour hasil generate untuk PIC dan URL tiket yang sama pada workbook ini."]]
+          "Tanpa unggah Excel lama, semua baris KPI dibuat dari DSM dan scan GitHub/Recorder. Setelah waktu diedit manual, Hour dan rekap yang memakai Hour dihitung ulang oleh Excel."]]
       : notes;
     if (target) appendSheetGuide(target, guide);
   }
@@ -438,7 +531,6 @@ export function createWorkbookFromDsm(entries, scans) {
       e.ticketUrl,
       ticketType(title),
       e.status,
-      "",
       displayDate(e.date),
       displayDateOrBlank(targetDateForTicket(e.ticketUrl, scans)),
       weekOfMonth(e.date),
@@ -455,7 +547,6 @@ export function createWorkbookFromDsm(entries, scans) {
       "Ticket URL",
       "Type",
       "Status",
-      "Priority",
       "Date",
       "Target Date",
       "Week",
@@ -537,7 +628,7 @@ function styleReportSheet(sheet, rowCount, columnCount) {
         alignment: { vertical: "center" },
         border,
       };
-      if (cell?.t === "n" && c === 10 && columnCount === 17) cell.z = "0.00";
+      if (cell?.t === "n" && c === 9 && columnCount === 16) cell.z = "0.00";
     }
   }
   sheet["!rows"] = [{ hpt: 32 }, ...Array.from({ length: rowCount }, () => ({ hpt: 25 }))];
@@ -574,7 +665,6 @@ function appendUniqueTicketsSheet(wb, entries, scans) {
       title,
       e.ticketUrl,
       displayStatus(latestStatus || last.status),
-      "",
       displayDate(date),
       displayDateOrBlank(startDate),
       displayDateOrBlank(targetDate),
@@ -595,7 +685,6 @@ function appendUniqueTicketsSheet(wb, entries, scans) {
       "Ticket Title",
       "Ticket URL",
       "Status",
-      "Priority",
       "Date DSM",
       "Start Date",
       "Target Date",
@@ -610,9 +699,25 @@ function appendUniqueTicketsSheet(wb, entries, scans) {
     ],
     ...rows,
   ]);
-  sheet["!cols"] = [14, 14, 58, 58, 20, 12, 14, 14, 14, 14, 14, 22, 15, 19, 12, 25, 30].map((wch) => ({ wch }));
-  sheet["!autofilter"] = { ref: `A1:Q${rows.length + 1}` };
-  styleReportSheet(sheet, rows.length, 17);
+  sheet["!cols"] = [14, 14, 58, 58, 20, 14, 14, 14, 14, 14, 22, 15, 19, 12, 25, 30].map((wch) => ({ wch }));
+  sheet["!autofilter"] = { ref: `A1:P${rows.length + 1}` };
+  styleReportSheet(sheet, rows.length, 16);
+  const ranges = kpiTicketRanges(wb);
+  for (let r = 1; r <= rows.length; r++) {
+    const n = r + 1;
+    if (ranges) {
+      const { pic, url, hour } = ranges;
+      const condition = `(${pic}=$A${n})*(${url}=$D${n})`;
+      const known = `SUMPRODUCT(${condition}*ISNUMBER(${hour}))`;
+      formulaCell(sheet, r, 9, `IF(${known}=0,"",SUMIFS(${hour},${pic},$A${n},${url},$D${n}))`, rows[r - 1][9]);
+      sheet[`J${n}`].z = "0.00";
+      formulaCell(sheet, r, 12, `${known}&"/"&COUNTIFS(${pic},$A${n},${url},$D${n})&" baris KPI"`, rows[r - 1][12]);
+    }
+    const dateNumber = (cell) => `IF(ISNUMBER(${cell}),INT(${cell}),DATE(VALUE(RIGHT(${cell},4)),VALUE(MID(${cell},4,2)),VALUE(LEFT(${cell},2))))`;
+    formulaCell(sheet, r, 10,
+      `IF(H${n}="","Tanpa Target",IF(I${n}="","Belum Ada End Date",IF(${dateNumber(`I${n}`)}<=${dateNumber(`H${n}`)},"Tepat Waktu","Melewati Target")))`,
+      rows[r - 1][10]);
+  }
   attachSheet(wb, "Rekap Tiket Unik", sheet);
 }
 function appendResumeSheet(wb) {
@@ -631,6 +736,22 @@ function appendResumeSheet(wb) {
   sheet["!cols"] = [7, 18, 15, 17, 14, 19, 17, 20, 17].map((wch) => ({ wch }));
   sheet["!autofilter"] = { ref: `A1:I${rows.length + 1}` };
   styleReportSheet(sheet, rows.length, 9);
+  const last = Math.max(2, details.length + 1);
+  const rekap = "'Rekap Tiket Unik'!";
+  const range = (col) => `${rekap}$${col}$2:$${col}$${last}`;
+  for (let r = 1; r <= rows.length; r++) {
+    const n = r + 1;
+    const pic = range("A");
+    const formulas = [
+      `COUNTIF(${pic},$B${n})`,
+      `COUNTIFS(${pic},$B${n},${range("L")},"Ya")`,
+      `COUNTIFS(${pic},$B${n},${range("E")},"Staging")`,
+      `COUNTIFS(${pic},$B${n},${range("E")},"Ready to Review")`,
+      ...["Tepat Waktu", "Melewati Target", "Tanpa Target"].map((status) =>
+        `COUNTIFS(${pic},$B${n},${range("K")},"${status}")`),
+    ];
+    formulas.forEach((f, i) => formulaCell(sheet, r, i + 2, f, rows[r - 1][i + 2]));
+  }
   attachSheet(wb, "Resume", sheet);
 }
 export function fillWorkbook(inputWorkbook, entries, scans, options = {}) {
