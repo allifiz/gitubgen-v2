@@ -778,6 +778,12 @@ export function fillWorkbook(inputWorkbook, entries, scans, options = {}) {
     throw new Error(`Header KPI tidak ditemukan di sheet "${sheetName}". Pastikan ada kolom Ticket URL/URL dan Start Time/Start.`);
   const headers = matrix[header].map(normalizeHeader),
     col = (names) => findColumn(headers, names);
+  // Keep legacy coordinates and formulas intact, but remove Priority from view.
+  const priorityCol = col(["priority"]);
+  if (priorityCol >= 0) {
+    sheet["!cols"] ||= [];
+    sheet["!cols"][priorityCol] = { ...sheet["!cols"][priorityCol], hidden: true };
+  }
   const cols = {
     assignee: col(["assignee", "pic"]),
     title: col(["ticket title", "judul tiket", "judul"]),

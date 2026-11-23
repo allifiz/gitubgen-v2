@@ -111,3 +111,15 @@ test('PIC alias pada workbook impor memakai kunci yang sama di rumus rekap', () 
   assert.equal(workbook.Sheets.KPI.N2.v, 'Dwiky');
   assert.match(workbook.Sheets['Rekap Tiket Unik'].J2.f, /'KPI'!\$N\$2:\$N\$2=\$A2/);
 });
+
+test('kolom Priority pada KPI impor disembunyikan tanpa menggeser referensi lama', () => {
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+    ['Assignee', 'URL', 'Priority', 'Date', 'Start', 'End', 'Hour'],
+    ['Allief', url, 'High', '03/10/2026', '', '', ''],
+  ]), 'KPI');
+  const { workbook } = fillWorkbook(wb, [task('allief', '2026-10-03')], scans);
+  assert.equal(workbook.Sheets.KPI['!cols'][2].hidden, true);
+  assert.equal(workbook.Sheets.KPI.C2.v, 'High');
+  assert.equal(workbook.Sheets.KPI.G1.v, 'Hour');
+});
