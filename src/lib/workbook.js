@@ -349,7 +349,7 @@ function appendSheetGuide(sheet, notes) {
   range.e.c = lastCol;
   sheet["!ref"] = XLSX.utils.encode_range(range);
 }
-function finish(wb, diagnostics, entries, scans) {
+function finish(wb, diagnostics, entries, scans, imported = false) {
   const sheet = XLSX.utils.aoa_to_sheet([diagnosticHeaders, ...diagnostics]);
   sheet["!cols"] = diagnosticHeaders.map((h, i) => ({
     wch: [0, 2, 3, 8, 9, 12, 13, 18, 19].includes(i) ? 16 : 42,
@@ -416,7 +416,11 @@ function finish(wb, diagnostics, entries, scans) {
     const target = name === "KPI"
       ? wb.Sheets[wb.SheetNames.find((n) => /^kpi$/i.test(n))]
       : wb.Sheets[name];
-    if (target) appendSheetGuide(target, notes);
+    const guide = name === "KPI" && !imported
+      ? [...notes.slice(0, -1), ["Workbook baru",
+          "Tanpa unggah Excel lama, semua baris KPI dibuat dari DSM dan hasil scan GitHub/Recorder. Total Hour di Rekap menjumlahkan Hour hasil generate untuk PIC dan URL tiket yang sama pada workbook ini."]]
+      : notes;
+    if (target) appendSheetGuide(target, guide);
   }
 }
 export function createWorkbookFromDsm(entries, scans) {
@@ -788,7 +792,7 @@ export function fillWorkbook(inputWorkbook, entries, scans, options = {}) {
     if (d.needsReview) review++;
     diagnostics.push(diagnosticsRow(r + 1, model.entry, d, scans, action));
   }
-  finish(workbook, diagnostics, daily, scans);
+  finish(workbook, diagnostics, daily, scans, true);
   return { workbook, updated, skipped, review, changes };
 }
 export {

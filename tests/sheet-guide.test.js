@@ -33,6 +33,7 @@ function guide(sheet) {
 
 test("setiap sheet mendapat panduan yang berbeda di bawah tabel data", () => {
   const { workbook } = createWorkbookFromDsm([entry], scans);
+  assert.match(guide(workbook.Sheets.KPI).text, /Workbook baru: Tanpa unggah Excel lama/);
   for (const [name, phrases] of Object.entries(expected)) {
     const sheet = workbook.Sheets[name], { rows, start, text } = guide(sheet);
     assert.ok(start >= 3, `${name}: panduan di bawah data dan satu baris kosong`);
@@ -53,6 +54,8 @@ test("impor workbook hasil generate tidak menduplikasi panduan KPI atau mengubah
   const hourBefore = kpi.M2?.v;
   const start = guide(kpi).start;
   const refreshed = fillWorkbook(original, [entry], scans).workbook;
+  assert.match(guide(refreshed.Sheets.KPI).text, /Workbook impor: Pada mode isi field kosong/);
+  assert.doesNotMatch(guide(refreshed.Sheets.KPI).text, /Workbook baru:/);
   assert.equal(guide(refreshed.Sheets.KPI).start, start);
   assert.equal(guide(refreshed.Sheets.KPI).rows.filter((row) =>
     row[0] === "PANDUAN GITUBGEN").length, 1);
