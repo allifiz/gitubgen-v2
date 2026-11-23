@@ -474,7 +474,10 @@ const pair = {
 test("F24 setengah terisi dilengkapi; nilai lama dilindungi default", () => {
   const before = wb([row("", "15/10/2026 14:00:00")]),
     result = fillWorkbook(before, [e()], pair);
-  assert.equal(result.workbook.Sheets.KPI.K2.v, "15/10/2026 13:00:00");
+  assert.equal(result.workbook.Sheets.KPI.K2.t, "n");
+  assert.equal(result.workbook.Sheets.KPI.K2.z, "dd/mm/yyyy hh:mm:ss");
+  const { y, m, d, H, M, S } = XLSX.SSF.parse_date_code(result.workbook.Sheets.KPI.K2.v);
+  assert.deepEqual([y, m, d, H, M, S], [2026, 10, 15, 13, 0, 0]);
   assert.equal(result.workbook.Sheets.KPI.M2.v, 1);
   assert.equal(before.Sheets.KPI.K2?.v || "", "");
   const full = fillWorkbook(wb([row("manual", "old", 9)]), [e()], pair);

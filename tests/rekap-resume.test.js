@@ -123,3 +123,32 @@ test('kolom Priority pada KPI impor disembunyikan tanpa menggeser referensi lama
   assert.equal(workbook.Sheets.KPI.C2.v, 'High');
   assert.equal(workbook.Sheets.KPI.G1.v, 'Hour');
 });
+
+test('waktu hasil scan dan impor langsung bertipe tanggal-jam Excel 24 jam', () => {
+  const timedScans = { [url]: { title: 'Task', events: [
+    { type: 'status', previousStatus: 'Todo', status: 'In Progress',
+      datetime: '2026-10-03T02:00:00Z', projectNumber: 11 },
+    { type: 'status', previousStatus: 'In Progress', status: 'Ready to Review',
+      datetime: '2026-10-03T04:00:00Z', projectNumber: 11 },
+  ], linkedUrls: [] } };
+  const generated = createWorkbookFromDsm([task('allief', '2026-10-03')], timedScans).workbook;
+  const kpi = generated.Sheets.KPI;
+  assert.equal(kpi.J2.t, 'n');
+  assert.equal(kpi.K2.t, 'n');
+  assert.equal(kpi.J2.z, 'dd/mm/yyyy hh:mm:ss');
+  assert.equal(kpi.J2.v, kpi.M2.v); // Baseline matches the numeric scan time.
+  assert.equal(kpi.K2.v, kpi.N2.v);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+    ['Assignee', 'URL', 'Date', 'Start', 'End', 'Hour'],
+    ['Allief', url, '03/10/2026', '03/10/2026 09:00:00', '03/10/2026 11:00:00', 2],
+  ]), 'KPI');
+  const imported = fillWorkbook(wb, [task('allief', '2026-10-03')], timedScans).workbook;
+  assert.equal(imported.Sheets.KPI.C2.t, 's'); // DSM Date remains a date label.
+  assert.equal(imported.Sheets.KPI.D2.t, 'n');
+  assert.equal(imported.Sheets.KPI.E2.t, 'n');
+  assert.equal(imported.Sheets.KPI.D2.v, imported.Sheets.KPI.H2.v);
+  const roundTrip = XLSX.read(XLSX.write(generated, { type: 'buffer', bookType: 'xlsx' }), { type: 'buffer', cellNF: true });
+  assert.equal(roundTrip.Sheets.KPI.J2.t, 'n');
+  assert.equal(roundTrip.Sheets.KPI.J2.z, 'dd/mm/yyyy hh:mm:ss');
+});

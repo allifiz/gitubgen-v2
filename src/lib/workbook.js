@@ -277,6 +277,30 @@ function kpiLayout(wb) {
 }
 const manualHeaders = ["_GitubGen Start", "_GitubGen End", "_GitubGen Hour",
   "_GitubGen Parsed Start", "_GitubGen Parsed End", "_GitubGen Manual Hour", "_GitubGen PIC"];
+const DATE_TIME_FORMAT = "dd/mm/yyyy hh:mm:ss";
+function excelDateTime(value) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  const match = String(value || "").trim().match(
+    /^(\d{2})\/(\d{2})\/(\d{4}) (\d{2}):(\d{2})(?::(\d{2}))?$/,
+  );
+  if (!match) return null;
+  const [, day, month, year, hour, minute, second = "0"] = match;
+  const date = new Date(Date.UTC(+year, +month - 1, +day, +hour, +minute, +second));
+  if (date.getUTCFullYear() !== +year || date.getUTCMonth() !== +month - 1 ||
+    date.getUTCDate() !== +day || date.getUTCHours() !== +hour ||
+    date.getUTCMinutes() !== +minute || date.getUTCSeconds() !== +second) return null;
+  return (date.getTime() - Date.UTC(1899, 11, 30)) / 86400000;
+}
+function formatKpiTimeCell(sheet, address) {
+  const cell = sheet[address] || (sheet[address] = { t: "z" });
+  const numeric = !cell.f ? excelDateTime(cell.v) : null;
+  if (numeric !== null) {
+    cell.v = numeric;
+    cell.t = "n";
+    delete cell.w;
+  }
+  cell.z = DATE_TIME_FORMAT;
+}
 function normalizedPicFormula(input) {
   const cleaned = `LOWER(SUBSTITUTE(SUBSTITUTE(TRIM(${input})," ",""),"gobimbel",""))`;
   return `IF(OR(${cleaned}="allif",${cleaned}="allief"),"Allief",IF(OR(${cleaned}="dwiki",${cleaned}="dwiky",${cleaned}="dwikyananditya"),"Dwiky",IF(${cleaned}="maslanadev","Maulana",TRIM(${input}))))`;
@@ -307,15 +331,22 @@ function installDynamicKpiHours(wb) {
   }
   for (const r of rows) {
     const original = sheet[letter(layout.hour, r)];
+    const start = letter(layout.start, r), end = letter(layout.end, r);
+    formatKpiTimeCell(sheet, start);
+    formatKpiTimeCell(sheet, end);
+    if (existing >= 0) {
+      formatKpiTimeCell(sheet, letter(base, r));
+      formatKpiTimeCell(sheet, letter(base + 1, r));
+    }
     if (layout.pic >= 0) formulaCell(sheet, r, base + 6,
       normalizedPicFormula(letter(layout.pic, r)), displayAssignee(matrix[r][layout.pic]));
     if (original?.f) continue; // Respect human formulas and formulas from earlier exports.
-    const start = letter(layout.start, r), end = letter(layout.end, r), hour = letter(layout.hour, r);
+    const hour = letter(layout.hour, r);
     const [savedStart, savedEnd, savedHour, parsedStart, parsedEnd, manualHour] =
       manualHeaders.map((_, i) => letter(base + i, r));
     if (existing < 0 || !sheet[savedStart]) {
-      setCell(sheet, r, base, sheet[start]?.v ?? "");
-      setCell(sheet, r, base + 1, sheet[end]?.v ?? "");
+      setCell(sheet, r, base, sheet[start]?.v ?? "", sheet[start]?.t === "n" ? "n" : "s");
+      setCell(sheet, r, base + 1, sheet[end]?.v ?? "", sheet[end]?.t === "n" ? "n" : "s");
       setCell(sheet, r, base + 2, original?.v ?? "", typeof original?.v === "number" ? "n" : "s");
     }
     formulaCell(sheet, r, base + 3, parsedTimeFormula(start), "");
@@ -346,9 +377,9 @@ const GUIDE_MARKER = "PANDUAN GITUBGEN";
 const sheetGuides = {
   KPI: [
     ["Isi baris", "Satu baris = satu PIC + URL tiket + tanggal DSM. Dua sesi pada tanggal yang sama digabung; Status adalah status dari DSM pada hari itu."],
-    ["Sumber tanggal", "Date berasal dari DSM; Target Date dari field Project 11. Start Time dan End Time memakai bukti aktivitas GitHub/Recorder pada hari kerja tersebut, ditampilkan dalam WIB."],
+    ["Sumber tanggal", "Date berasal dari DSM; Target Date dari field Project 11. Start Time dan End Time memakai bukti aktivitas GitHub/Recorder, disimpan sebagai tanggal-jam Excel dan ditampilkan dalam WIB dengan format 24 jam."],
     ["Rumus Hour", "Hour = jumlah detik efektif dari interval kerja In Progress yang terbukti / 3600. Jam kerja: Senin-Jumat 09.00-17.00, Sabtu 09.00-16.00; istirahat biasa 12.00-13.00, Jumat 11.30-13.30."],
-    ["Edit manual", "Jika Start Time atau End Time diedit, Hour dihitung ulang dari pasangan waktu WIB pada hari yang sama, dibatasi jam kerja dan istirahat. Nilai awal dari scan tetap dipakai selama kedua waktu belum diubah. Hapus salah satu waktu untuk mengosongkan Hour."],
+    ["Edit manual", "Jika Start Time atau End Time diedit, Hour dihitung ulang dari pasangan waktu WIB pada hari yang sama, dibatasi jam kerja dan istirahat. Ketik YYYY-MM-DD HH:mm:ss agar Excel tidak menukar hari dan bulan menurut pengaturan bahasa komputer. Hapus salah satu waktu untuk mengosongkan Hour."],
     ["Workbook impor", "Pada mode isi field kosong, nilai KPI yang sudah ada dipertahankan. Rumus di sel yang sudah ada tetap dilindungi; Hour baru yang ditambahkan menjadi dinamis."],
   ],
   Diagnostic: [
