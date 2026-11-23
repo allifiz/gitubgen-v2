@@ -50,7 +50,7 @@ Format sederhana header tanggal/sesi, header PIC, lalu URL juga didukung. Tangga
 
 ## Bukti dan ketahanan
 
-Workbook berisi KPI, Diagnostic (ID baris stabil, detik, interval, flag, sumber, rule version, project, coverage), Rekap Tiket Unik, Evidence, dan Run Metadata. Tanggal memakai Asia/Jakarta; rentang Recorder dinormalisasi UTC dengan batas akhir eksklusif.
+Workbook berisi KPI, Diagnostic (ID baris stabil, detik, interval, flag, sumber, rule version, project, coverage), Rekap Tiket Unik, Resume, Evidence, dan Run Metadata. Rekap membuat satu baris per PIC dan URL tiket: Date DSM dari catatan DSM pertama, Start Date dan Target Date dari Project 11, End Date dari status Staging atau Deployed pertama, serta Total Hour dari seluruh baris KPI tiket tersebut. Jam yang belum diketahui tetap kosong; Cakupan Hour menunjukkan baris KPI yang terisi. Resume menghitung tiket unik per PIC, tiket yang ditutup, status terakhir Staging/Ready to Review, dan ketepatan End Date terhadap Target Date. Tiket tanpa Target Date dihitung terpisah; tiket bertarget yang belum masuk Staging/Deployed belum masuk hitungan tepat waktu atau melewati target. Semua tanggal event memakai Asia/Jakarta; rentang Recorder dinormalisasi UTC dengan batas akhir eksklusif. Tidak perlu mengunggah TSV Project.
 
 Collector memisahkan sub-issue/closing PR/connected link dari mention biasa. Connection GitHub dipaginasi, dengan batas 40 request logis per node, 1.200 percobaan HTTP per scan, 1.500 node, dan empat worker. Batas/izin/error menghasilkan coverage parsial; hasil tidak dinyatakan lengkap. Metadata rate limit disimpan bila diberikan GitHub. Recorder dibaca dalam batch maksimal 200 URL, termasuk konteks sebelum awal periode.
 

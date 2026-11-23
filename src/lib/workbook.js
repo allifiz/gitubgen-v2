@@ -3,10 +3,10 @@ import { collapseDailyEntries } from "./dsm-parser.js";
 import {
   decisionRows,
   decideTimes,
-  uniqueTicketPeriod,
   targetDateForTicket,
   latestGitHubStatus,
   localDate,
+  transitionTarget,
   RULE_VERSION,
 } from "./activity-matcher.js";
 import { normalizeGitHubUrl } from "./github-url.js";
@@ -261,6 +261,7 @@ function finish(wb, diagnostics, entries, scans) {
   sheet["!autofilter"] = { ref: `A1:X${diagnostics.length + 1}` };
   attachSheet(wb, "Diagnostic", sheet);
   appendUniqueTicketsSheet(wb, entries, scans);
+  appendResumeSheet(wb);
   const evidence = [
     [
       "Ticket URL",
@@ -369,12 +370,79 @@ export function createWorkbookFromDsm(entries, scans) {
     changes: [],
   };
 }
+function kpiHourTotals(wb) {
+  const sheet = wb.Sheets[wb.SheetNames.find((name) => /^kpi$/i.test(name))];
+  if (!sheet) return new Map();
+  const matrix = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "", raw: true });
+  const header = findHeaderRow(matrix);
+  if (header < 0) return new Map();
+  const names = matrix[header].map(normalizeHeader);
+  const picCol = findColumn(names, ["assignee", "pic"]);
+  const urlCol = findColumn(names, ["ticket url", "url"]);
+  const hourCol = findColumn(names, ["hour", "hours", "durasi"]);
+  const totals = new Map();
+  if (urlCol < 0 || hourCol < 0) return totals;
+  for (const row of matrix.slice(header + 1)) {
+    const url = normalizeGitHubUrl(String(row[urlCol] || ""));
+    if (!url) continue;
+    const key = `${normalizePerson(row[picCol] || "")}|${url}`;
+    const item = totals.get(key) || { total: 0, known: 0, rows: 0 };
+    item.rows++;
+    const raw = row[hourCol];
+    if (raw !== "" && raw != null && Number.isFinite(Number(raw))) {
+      item.total += Number(raw);
+      item.known++;
+    }
+    totals.set(key, item);
+  }
+  return totals;
+}
+function firstDeliveryDate(scan) {
+  const events = (scan?.events || [])
+    .filter((event) => event.datetime &&
+      ["staging", "deployed"].includes(transitionTarget(event)))
+    .sort((a, b) => +new Date(a.datetime) - +new Date(b.datetime));
+  return localDate(events[0]?.datetime) || "";
+}
+function isTicketClosed(scan) {
+  if (scan?.closedAt) return true;
+  const states = (scan?.events || [])
+    .filter((event) => event.type === "issue_state" &&
+      ["closed", "open"].includes(event.state) && event.datetime)
+    .sort((a, b) => +new Date(a.datetime) - +new Date(b.datetime));
+  return states.at(-1)?.state === "closed";
+}
+function styleReportSheet(sheet, rowCount, columnCount) {
+  const border = {
+    bottom: { style: "thin", color: { rgb: "DCE5ED" } },
+  };
+  for (let c = 0; c < columnCount; c++) {
+    const header = sheet[XLSX.utils.encode_cell({ r: 0, c })];
+    header.s = {
+      font: { bold: true, color: { rgb: "FFFFFF" } },
+      fill: { fgColor: { rgb: "1F4E78" } },
+      alignment: { vertical: "center", wrapText: true },
+      border,
+    };
+    for (let r = 1; r <= rowCount; r++) {
+      const cell = sheet[XLSX.utils.encode_cell({ r, c })];
+      if (cell) cell.s = {
+        fill: { fgColor: { rgb: r % 2 ? "FFFFFF" : "F2F7FB" } },
+        alignment: { vertical: "center" },
+        border,
+      };
+      if (cell?.t === "n" && c === 10 && columnCount === 17) cell.z = "0.00";
+    }
+  }
+  sheet["!rows"] = [{ hpt: 32 }, ...Array.from({ length: rowCount }, () => ({ hpt: 25 }))];
+}
 function appendUniqueTicketsSheet(wb, entries, scans) {
   const groups = new Map();
   for (const e of entries) {
     const k = `${normalizePerson(e.assignee)}|${e.ticketUrl}`;
     groups.set(k, [...(groups.get(k) || []), e]);
   }
+  const hoursByTicket = kpiHourTotals(wb);
   const rows = [...groups.values()].map((group) => {
     const sorted = [...group].sort((a, b) => a.date.localeCompare(b.date)),
       e = sorted[0],
@@ -386,12 +454,14 @@ function appendUniqueTicketsSheet(wb, entries, scans) {
         : latestStatus
           ? "GitHub/Recorder history"
           : "DSM fallback",
-      period = uniqueTicketPeriod(group, scans),
-      starts = group
-        .map((e) => decideTimes(e, scans).start)
-        .filter(Boolean)
-        .sort((a, b) => +new Date(a) - +new Date(b)),
-      date = localDate(starts[0]) || period.startDate;
+      date = e.date,
+      startDate = scans[e.ticketUrl]?.startDate || "",
+      targetDate = targetDateForTicket(e.ticketUrl, scans),
+      endDate = firstDeliveryDate(scans[e.ticketUrl]),
+      hours = hoursByTicket.get(`${normalizePerson(e.assignee)}|${e.ticketUrl}`),
+      timeliness = !targetDate ? "Tanpa Target" : !endDate
+        ? "Belum Ada End Date" : endDate <= targetDate
+          ? "Tepat Waktu" : "Melewati Target";
     return [
       displayAssignee(e.assignee),
       systemType(title),
@@ -400,7 +470,13 @@ function appendUniqueTicketsSheet(wb, entries, scans) {
       displayStatus(latestStatus || last.status),
       "",
       displayDate(date),
-      period.endDate ? displayDate(period.endDate) : "",
+      displayDateOrBlank(startDate),
+      displayDateOrBlank(targetDate),
+      displayDateOrBlank(endDate),
+      hours?.known ? hours.total : "",
+      timeliness,
+      isTicketClosed(scans[e.ticketUrl]) ? "Ya" : "Tidak",
+      hours ? `${hours.known}/${hours.rows} baris KPI` : "0/0 baris KPI",
       weekOfMonth(date),
       latestStatus ? scans[e.ticketUrl]?.collectedAt || "" : "",
       statusSource,
@@ -408,22 +484,48 @@ function appendUniqueTicketsSheet(wb, entries, scans) {
   });
   const sheet = XLSX.utils.aoa_to_sheet([
     [
-      "Assignee",
+      "Nama PIC",
       "Type",
       "Ticket Title",
       "Ticket URL",
       "Status",
       "Priority",
-      "Date",
+      "Date DSM",
+      "Start Date",
+      "Target Date",
       "End Date",
+      "Total Hour",
+      "Ketepatan",
+      "Tiket Closed",
+      "Cakupan Hour",
       "Week",
       "Status As Of (UTC)",
       "Status Source",
     ],
     ...rows,
   ]);
-  sheet["!cols"] = [14, 14, 58, 58, 20, 12, 14, 14, 12, 25, 30].map((wch) => ({ wch }));
+  sheet["!cols"] = [14, 14, 58, 58, 20, 12, 14, 14, 14, 14, 14, 22, 15, 19, 12, 25, 30].map((wch) => ({ wch }));
+  sheet["!autofilter"] = { ref: `A1:Q${rows.length + 1}` };
+  styleReportSheet(sheet, rows.length, 17);
   attachSheet(wb, "Rekap Tiket Unik", sheet);
+}
+function appendResumeSheet(wb) {
+  const details = XLSX.utils.sheet_to_json(wb.Sheets["Rekap Tiket Unik"], { defval: "" });
+  const pics = [...new Set(details.map((row) => row["Nama PIC"]).filter(Boolean))];
+  const rows = pics.map((pic, index) => {
+    const tickets = details.filter((row) => row["Nama PIC"] === pic);
+    const count = (column, value) => tickets.filter((row) => row[column] === value).length;
+    return [index + 1, pic, tickets.length, count("Tiket Closed", "Ya"),
+      count("Status", "Staging"), count("Status", "Ready to Review"),
+      count("Ketepatan", "Tepat Waktu"), count("Ketepatan", "Melewati Target"),
+      count("Ketepatan", "Tanpa Target")];
+  });
+  const sheet = XLSX.utils.aoa_to_sheet([["No", "Nama PIC", "Total Task", "Done / Closed",
+    "Staging", "Ready to Review", "Tepat Waktu", "Melewati Target", "Tanpa Target"], ...rows]);
+  sheet["!cols"] = [7, 18, 15, 17, 14, 19, 17, 20, 17].map((wch) => ({ wch }));
+  sheet["!autofilter"] = { ref: `A1:I${rows.length + 1}` };
+  styleReportSheet(sheet, rows.length, 9);
+  attachSheet(wb, "Resume", sheet);
 }
 export function fillWorkbook(inputWorkbook, entries, scans, options = {}) {
   // Keep existing cell objects, formula references, hyperlinks, notes, merges and row coordinates.
@@ -435,7 +537,7 @@ export function fillWorkbook(inputWorkbook, entries, scans, options = {}) {
   const sheetName =
       workbook.SheetNames.find((n) => /^kpi$/i.test(n)) ||
       workbook.SheetNames.find((n) =>
-        !/^(diagnostic|diagnostics|evidence|rekap tiket unik|run metadata)$/i.test(n) &&
+        !/^(diagnostic|diagnostics|evidence|rekap tiket unik|resume|run metadata)$/i.test(n) &&
         findHeaderRow(XLSX.utils.sheet_to_json(workbook.Sheets[n], { header: 1, defval: "" })) >= 0,
       ) || workbook.SheetNames[0],
     sheet = workbook.Sheets[sheetName];

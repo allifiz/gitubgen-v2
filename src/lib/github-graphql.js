@@ -232,11 +232,14 @@ export function normalizeActivity(payload, requestedUrl, options = {}) {
         .map((r) => [`${r.type}|${r.url}`, r]),
     ).values(),
   ];
+  let startDate = "";
   let targetDate = "";
   let currentProjectStatus = "";
   for (const item of s.projectItems?.nodes || []) {
     if (item?.project?.number !== (options.projectNumber || 11)) continue;
     for (const v of item.fieldValues?.nodes || []) {
+      if (/^start date$/i.test(v?.field?.name || "") && v.date)
+        startDate = v.date;
       if (/^target date$/i.test(v?.field?.name || "") && v.date)
         targetDate = v.date;
       if (/^status$/i.test(v?.field?.name || "") && v.name)
@@ -256,7 +259,9 @@ export function normalizeActivity(payload, requestedUrl, options = {}) {
         relations.filter((r) => r.type !== "mention").map((r) => r.url),
       ),
     ],
+    startDate,
     targetDate,
+    closedAt: target?.kind === "issues" ? s.closedAt || "" : "",
     currentProjectStatus,
     collectedAt: new Date().toISOString(),
     activitySource: "graphql",
@@ -365,6 +370,8 @@ export async function fetchActivity(
       (a, b) => +new Date(a.datetime) - +new Date(b.datetime),
     ),
     targetDate: project?.targetDate || core?.targetDate || "",
+    startDate: project?.startDate || core?.startDate || "",
+    closedAt: core?.closedAt || "",
     currentProjectStatus:
       project?.currentProjectStatus || core?.currentProjectStatus || "",
     title: core?.title || project?.title || "",

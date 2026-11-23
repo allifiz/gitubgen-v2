@@ -64,6 +64,7 @@ test("GraphQL Project 11 current Status is captured without confusing Target Dat
         ] } },
         { project: { number: 11 }, fieldValues: { nodes: [
           { name: "Deployed", field: { name: "Status" } },
+          { date: "2026-10-25", field: { name: "Start Date" } },
           { date: "2026-10-30", field: { name: "Target Date" } },
         ] } },
       ] },
@@ -71,6 +72,7 @@ test("GraphQL Project 11 current Status is captured without confusing Target Dat
   }, url);
   assert.equal(d.title, "[GOICONS] FIX: Rencana Rapat");
   assert.equal(d.currentProjectStatus, "Deployed");
+  assert.equal(d.startDate, "2026-10-25");
   assert.equal(d.targetDate, "2026-10-30");
 });
 
@@ -94,8 +96,9 @@ test("unique tickets use the current status, not last DSM day or another Project
   assert.equal(workbook.Sheets.KPI.C2.v, scans[url].title);
   assert.equal(workbook.Sheets["Rekap Tiket Unik"].C2.v, scans[url].title);
   assert.equal(workbook.Sheets["Rekap Tiket Unik"].E2.v, "Deployed");
-  assert.equal(workbook.Sheets["Rekap Tiket Unik"].J2.v, scans[url].collectedAt);
-  assert.equal(workbook.Sheets["Rekap Tiket Unik"].K2.v, "GitHub Project 11 (current)");
+  assert.equal(workbook.Sheets["Rekap Tiket Unik"].G2.v, "27/10/2026");
+  assert.equal(workbook.Sheets["Rekap Tiket Unik"].P2.v, scans[url].collectedAt);
+  assert.equal(workbook.Sheets["Rekap Tiket Unik"].Q2.v, "GitHub Project 11 (current)");
   // The daily DSM status must remain historical, not be replaced by current Project status.
   assert.equal(workbook.Sheets.KPI.F2.v, "In Progress");
 });
