@@ -253,6 +253,102 @@ function attachSheet(wb, name, sheet) {
   if (!wb.SheetNames.includes(name)) wb.SheetNames.push(name);
   wb.Sheets[name] = sheet;
 }
+const GUIDE_MARKER = "PANDUAN GITUBGEN";
+const sheetGuides = {
+  KPI: [
+    ["Isi baris", "Satu baris = satu PIC + URL tiket + tanggal DSM. Dua sesi pada tanggal yang sama digabung; Status adalah status dari DSM pada hari itu."],
+    ["Sumber tanggal", "Date berasal dari DSM; Target Date dari field Project 11. Start Time dan End Time memakai bukti aktivitas GitHub/Recorder pada hari kerja tersebut, ditampilkan dalam WIB."],
+    ["Rumus Hour", "Hour = jumlah detik efektif dari interval kerja In Progress yang terbukti / 3600. Jam kerja: Senin-Jumat 09.00-17.00, Sabtu 09.00-16.00; istirahat biasa 12.00-13.00, Jumat 11.30-13.30."],
+    ["Nilai kosong", "Hour kosong berarti interval kerja lengkap tidak dapat dibuktikan, bukan 0 jam. Selisih sederhana End Time - Start Time bukan rumus Hour karena jeda/review tidak ikut dihitung."],
+    ["Workbook impor", "Pada mode isi field kosong, nilai KPI yang sudah ada dipertahankan. Total Hour di Rekap dihitung dari angka KPI hasil akhir pada saat file diekspor."],
+  ],
+  Diagnostic: [
+    ["Isi baris", "Satu baris Diagnostic merujuk ke nomor baris KPI di kolom KPI Row; Row ID adalah gabungan PIC, URL tiket, dan tanggal."],
+    ["Dasar Hour", "Seconds dan Hour berasal dari interval kerja efektif dalam kolom Intervals (JSON). Hour = Seconds / 3600; angka tanpa bukti interval lengkap tetap kosong."],
+    ["Rule dan Flags", "Rule menjelaskan cara keputusan dibuat; Flags menunjukkan keterbatasan bukti. Needs Review = YES meminta pemeriksaan manual, bukan otomatis menyatakan nilai salah."],
+    ["Sumber bukti", "Start Source dan End Source menunjukkan asal keputusan waktu. Coverage, Relationship Paths, dan Scan At membantu menelusuri kelengkapan scan serta relasi tiket/PR."],
+    ["Waktu", "Date dan waktu Start/End ditampilkan dalam WIB. Scan At adalah waktu pengambilan data dalam UTC; Rule Version menunjukkan versi aturan generator."],
+  ],
+  "Rekap Tiket Unik": [
+    ["Satu tiket", "Satu baris = satu PIC + URL tiket dari DSM. Date DSM adalah tanggal paling awal tiket itu muncul dalam DSM yang digenerate, termasuk pekerjaan dari bulan sebelumnya bila ada."],
+    ["Tanggal Project", "Start Date dan Target Date diambil langsung dari field GitHub Project 11 saat scan; kosong jika field tidak tersedia atau Project tidak dapat dibaca."],
+    ["End Date", "Tanggal WIB saat tiket pertama kali berpindah ke Staging atau Deployed pada riwayat Project 11. Ini bukan End Time baris KPI atau waktu tiket ditutup."],
+    ["Total Hour", "Jumlah semua angka Hour pada sheet KPI hasil ekspor dengan PIC dan URL tiket yang sama, dari semua tanggal yang tersedia di workbook ini. Kosong jika tidak ada angka; 0 yang tercatat tetap 0."],
+    ["Cakupan Hour", "Contoh 2/3 baris KPI berarti dua dari tiga baris untuk PIC+tiket tersebut memiliki angka Hour. Total Hour bisa parsial bila cakupannya belum penuh."],
+    ["Ketepatan", "Tepat Waktu jika End Date <= Target Date; Melewati Target jika lebih lambat. Tanpa Target jika target kosong; Belum Ada End Date jika target ada namun transisi selesai belum terbukti."],
+    ["Status dan closed", "Status adalah status terakhir Project 11 (fallback riwayat/DSM). Tiket Closed berasal dari status issue ditutup; Status As Of (UTC) adalah waktu status dibaca, bukan waktu perubahan status."],
+  ],
+  Resume: [
+    ["Unit hitung", "Satu baris per PIC. Total Task menghitung baris tiket unik pada Rekap Tiket Unik, sehingga pengulangan tiket di beberapa hari KPI tidak menambah jumlah task."],
+    ["Done / Closed", "Jumlah tiket unik yang issue GitHub-nya ditutup. Staging dan Ready to Review menghitung status terakhir tiket saat scan, bukan seluruh tiket yang pernah melewati tahap itu."],
+    ["Ketepatan", "Tepat Waktu dan Melewati Target menghitung kategori Ketepatan per tiket unik di Rekap; tanggal pembanding adalah Staging/Deployed pertama dalam WIB terhadap Target Date Project 11."],
+    ["Tanpa Target", "Jumlah tiket unik yang Target Date-nya kosong. Tiket dengan target tetapi belum punya End Date tidak termasuk tiga kolom kategori ketepatan sampai ada bukti transisinya."],
+    ["Pembaruan", "Angka Resume adalah hasil saat file digenerate. Jika data GitHub atau angka KPI berubah setelahnya, scan dan ekspor ulang untuk menghitung kembali."],
+  ],
+  Evidence: [
+    ["Isi baris", "Catatan aktivitas mentah dari scan untuk tiket DSM beserta tiket/PR terkait; URL yang muncul tidak semuanya menjadi task unik pada Resume."],
+    ["Sumber dan tipe", "Source menunjukkan GraphQL GitHub atau Recorder; Type membedakan transisi status, issue closed/reopened, komentar, commit, PR, assignment, dan hubungan tiket."],
+    ["Timestamp", "Timestamp UTC adalah waktu peristiwa yang tercatat, bukan waktu scan. Untuk membandingkan tanggal DSM/End Date, GitubGen mengonversinya ke WIB (UTC+7)."],
+    ["Status", "Previous Status dan Status merekam transisi; hanya status Project 11 yang relevan untuk End Date pertama. Riwayat semua URL terkait tetap tersimpan untuk audit."],
+    ["Observasi", "Raw Observations menyimpan pengamatan sumber untuk event yang dikorelasikan. Event yang hanya berupa observasi/komentar tidak otomatis menjadi durasi kerja."],
+  ],
+  "Run Metadata": [
+    ["Rule Version", "Versi aturan GitubGen yang menghasilkan workbook. Bila versi berubah, jalankan scan ulang sebelum mengekspor."],
+    ["Exported At", "Waktu pembuatan file dalam UTC (akhiran Z). Tanggal kerja dan End Date pada laporan memakai zona Asia/Jakarta (WIB)."],
+    ["Hour policy", "Ringkasan aturan jam kerja efektif untuk KPI; detail interval, sumber waktu, dan alasan review tersedia di Diagnostic."],
+    ["Import policy", "Workbook KPI lama dilengkapi pada field kosong secara default; perubahan nilai yang sudah terisi butuh mode rekonsiliasi dan pilihan baris yang disetujui."],
+    ["KPI denominator", "GitubGen tidak membagi jam untuk dua tiket dengan interval yang bertumpuk. Jika ada overlap, periksa Flags di Diagnostic."],
+  ],
+};
+function appendSheetGuide(sheet, notes) {
+  const range = XLSX.utils.decode_range(sheet["!ref"] || "A1");
+  let row = -1;
+  for (let r = 0; r <= range.e.r; r++)
+    if (sheet[XLSX.utils.encode_cell({ r, c: 0 })]?.v === GUIDE_MARKER) {
+      row = r;
+      break;
+    }
+  if (row < 0) row = range.e.r + 2; // One blank row separates data and guidance.
+  const lastCol = Math.max(1, range.e.c);
+  setCell(sheet, row, 0, GUIDE_MARKER);
+  const heading = sheet[XLSX.utils.encode_cell({ r: row, c: 0 })];
+  heading.s = {
+    font: { bold: true, color: { rgb: "FFFFFF" } },
+    fill: { fgColor: { rgb: "1F4E78" } },
+  };
+  sheet["!rows"] ||= [];
+  sheet["!rows"][row] = { hpt: 25 };
+  sheet["!merges"] ||= [];
+  for (const [index, [label, explanation]] of notes.entries()) {
+    const r = row + index + 1;
+    setCell(sheet, r, 0, label);
+    setCell(sheet, r, 1, explanation);
+    sheet[XLSX.utils.encode_cell({ r, c: 0 })].s = {
+      font: { bold: true, color: { rgb: "17324F" } },
+      fill: { fgColor: { rgb: index % 2 ? "F5F8FC" : "E9F1F7" } },
+      alignment: { vertical: "top", wrapText: true },
+    };
+    sheet[XLSX.utils.encode_cell({ r, c: 1 })].s = {
+      fill: { fgColor: { rgb: index % 2 ? "F5F8FC" : "E9F1F7" } },
+      alignment: { vertical: "top", wrapText: true },
+    };
+    if (lastCol > 1 && !sheet["!merges"].some((m) =>
+      m.s.r === r && m.e.r === r && m.s.c === 1 && m.e.c === lastCol))
+      sheet["!merges"].push({ s: { r, c: 1 }, e: { r, c: lastCol } });
+    const estimatedLineWidth = lastCol === 1 ? 95 : lastCol * 10;
+    sheet["!rows"][r] = {
+      hpt: Math.max(32, Math.ceil(explanation.length / estimatedLineWidth) * 18),
+    };
+  }
+  if (lastCol === 1) {
+    sheet["!cols"] ||= [];
+    sheet["!cols"][0] ||= { wch: 24 };
+    sheet["!cols"][1] = { wch: 115 };
+  }
+  range.e.r = Math.max(range.e.r, row + notes.length);
+  range.e.c = lastCol;
+  sheet["!ref"] = XLSX.utils.encode_range(range);
+}
 function finish(wb, diagnostics, entries, scans) {
   const sheet = XLSX.utils.aoa_to_sheet([diagnosticHeaders, ...diagnostics]);
   sheet["!cols"] = diagnosticHeaders.map((h, i) => ({
@@ -316,6 +412,12 @@ function finish(wb, diagnostics, entries, scans) {
       ],
     ]),
   );
+  for (const [name, notes] of Object.entries(sheetGuides)) {
+    const target = name === "KPI"
+      ? wb.Sheets[wb.SheetNames.find((n) => /^kpi$/i.test(n))]
+      : wb.Sheets[name];
+    if (target) appendSheetGuide(target, notes);
+  }
 }
 export function createWorkbookFromDsm(entries, scans) {
   const daily = prepareDailyEntries(entries),

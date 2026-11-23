@@ -520,7 +520,8 @@ test("F25 roundtrip menjaga formula hyperlink comment style merge & coordinates"
   assert.equal(round.Sheets.KPI.D2.l.Target, root);
   assert.equal(round.Sheets.KPI.D2.c[0].t, "keep");
   assert.ok(result.workbook.Sheets.KPI.D2.s.font.bold);
-  assert.equal(round.Sheets.KPI["!merges"].length, 1);
+  assert.ok(round.Sheets.KPI["!merges"].some((m) =>
+    m.s.r === 3 && m.s.c === 0 && m.e.r === 3 && m.e.c === 2));
 });
 test("F25 Target Date ditambahkan di ujung, formula tidak bergeser", () => {
   const h = headers.filter((v) => v !== "Target Date"),
@@ -539,7 +540,8 @@ test("F26 Diagnostic row stabil, mencakup unmatched dan skipped", () => {
   const out = fillWorkbook(wb([r, r2]), [e()], pair).workbook;
   assert.equal(out.Sheets.KPI.H2.v, "15/10/2026");
   const rows = XLSX.utils.sheet_to_json(out.Sheets.Diagnostic, { header: 1 });
-  assert.equal(rows.length, 3);
+  assert.equal(rows[3][0], undefined); // Spacer before sheet-specific guidance.
+  assert.equal(rows[4][0], "PANDUAN GITUBGEN");
   assert.equal(rows[1][0], 2);
   assert.equal(rows[2][0], 3);
   assert.equal(rows[2][10], "UNMATCHED_DSM_ROW");

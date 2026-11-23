@@ -34,8 +34,10 @@ test('generate langsung dari DSM dan scan Project tanpa TSV: rekap unik dan resu
   const entries = [task('allief', '2026-09-30'), task('allief', '2026-10-03'),
     task('hizkia', '2026-10-03', other)];
   const { workbook } = createWorkbookFromDsm(entries, scans);
-  const detail = XLSX.utils.sheet_to_json(workbook.Sheets['Rekap Tiket Unik'], { defval: '' });
-  const summary = XLSX.utils.sheet_to_json(workbook.Sheets.Resume);
+  const detail = XLSX.utils.sheet_to_json(workbook.Sheets['Rekap Tiket Unik'], { defval: '' })
+    .filter((row) => row['Ticket URL']);
+  const summary = XLSX.utils.sheet_to_json(workbook.Sheets.Resume)
+    .filter((row) => Number.isInteger(row.No));
   assert.equal(detail.length, 2);
   assert.equal(detail[0]['Date DSM'], '30/09/2026');
   assert.equal(detail[0]['Start Date'], '29/09/2026');
